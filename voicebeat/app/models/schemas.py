@@ -41,8 +41,11 @@ class AudioSegment(BaseModel):
     type: SegmentType
     start_seconds: float
     end_seconds: float
-    transcript: Optional[str] = None  # Only for speech segments
-    audio_file: Optional[str] = None  # Path to extracted audio chunk
+    transcript: Optional[str] = None        # Only for speech segments
+    audio_file: Optional[str] = None        # Path to extracted audio chunk
+    instrument: Optional[Instrument] = None         # Instrument requested in the command
+    semantic_command: Optional[str] = None  # The command portion of the utterance
+    volume: Optional[float] = None          # RMS energy of the segment (0.0–1.0)
 
 
 class PitchEvent(BaseModel):
