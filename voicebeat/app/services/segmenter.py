@@ -32,6 +32,62 @@ from app.services import transcription
 
 _openai_client: Optional[AsyncOpenAI] = None
 
+# ---------------------------------------------------------------------------
+# Beat vocalization keywords - these indicate the start of musical content
+# ---------------------------------------------------------------------------
+
+BEAT_KEYWORDS = {
+    # Drum/percussion sounds
+    "boom", "bum", "bam", "bom", "bdum", "dum", "doom",
+    "tk", "tik", "tick", "tck", "tak", "tuk",
+    "tss", "ts", "tsh", "tsss", "psh", "pss", "shh", "ssh",
+    "ka", "kah", "kk", "ck",
+    "ch", "chh", "cha",
+    "pah", "pa", "pow", "pow",
+    "dun", "don", "dan",
+    # Melodic vocalizations
+    "da", "dah", "di", "dee", "do", "doo",
+    "la", "lah", "le", "lo", "loo",
+    "na", "nah", "ne", "no", "noo",
+    "ba", "bah", "be", "bo", "boo",
+    "mm", "mmm", "hmm", "hm", "hmmm",
+    "ah", "aah", "oh", "ooh", "oo",
+    # Common beatbox variations
+    "pff", "pfft", "brr", "brra",
+    "skrt", "skrr",
+    "duh", "doh",
+    # Single letters often transcribed from beats
+    "t", "k", "p", "b", "d",
+}
+
+# Confidence threshold - words below this are likely beat sounds not speech
+BEAT_CONFIDENCE_THRESHOLD = 0.7
+
+
+def _find_keyword_boundary(words: list[dict]) -> tuple[float, int]:
+    """
+    Find the boundary where beat vocalizations begin based on keywords.
+
+    Returns:
+        (boundary_seconds, word_index) - the start time of the first beat keyword
+        and its index, or (-1, -1) if no keywords found.
+    """
+    for i, word_data in enumerate(words):
+        word = word_data.get("word", "").lower().rstrip("?!.,")
+        confidence = word_data.get("confidence", 1.0)
+
+        # Check if word is a beat keyword
+        if word in BEAT_KEYWORDS:
+            logger.info(f"SEGMENTER: Found beat keyword '{word}' at {word_data.get('start')}s (confidence={confidence})")
+            return word_data.get("start", 0.0), i
+
+        # Also check for low-confidence short words (likely misrecognized beats)
+        if len(word) <= 3 and confidence < BEAT_CONFIDENCE_THRESHOLD:
+            logger.info(f"SEGMENTER: Found low-confidence short word '{word}' at {word_data.get('start')}s (confidence={confidence})")
+            return word_data.get("start", 0.0), i
+
+    return -1, -1
+
 def _get_openai_client() -> AsyncOpenAI:
     global _openai_client
     if _openai_client is None:
@@ -208,7 +264,11 @@ async def _find_command_boundary(
     total_duration: float,
 ) -> tuple[float, str]:
     """
-    Ask GPT-4o-mini to split the transcript into semantic command vs beat vocalizations.
+    Find where the semantic command ends and beat vocalizations begin.
+
+    Strategy:
+    1. First use keyword-based detection (most reliable for beat sounds)
+    2. Fall back to LLM if no keywords found
 
     Returns:
         (command_end_seconds, command_text)
@@ -220,6 +280,26 @@ async def _find_command_boundary(
     if not words:
         return 0.0, transcript
 
+    # Step 1: Try keyword-based boundary detection first
+    keyword_boundary, keyword_index = _find_keyword_boundary(words)
+
+    if keyword_boundary >= 0:
+        # Found a beat keyword - extract command text from words before it
+        command_words = [w.get("word", "") for w in words[:keyword_index]]
+        command_text = " ".join(command_words).strip()
+
+        # Clean up common trailing words that lead into beats
+        trailing_patterns = [" that go", " that goes", " it goes", " goes like", " like", " go"]
+        for pattern in trailing_patterns:
+            if command_text.lower().endswith(pattern):
+                command_text = command_text[:-len(pattern)].strip()
+                break
+
+        logger.info(f"SEGMENTER: Keyword-based boundary at {keyword_boundary}s, command='{command_text}'")
+        return keyword_boundary, command_text
+
+    # Step 2: Fall back to LLM-based detection
+    logger.info("SEGMENTER: No beat keywords found, using LLM for boundary detection")
     prompt = _BOUNDARY_PROMPT.format(
         transcript=transcript,
         words=json.dumps(words),

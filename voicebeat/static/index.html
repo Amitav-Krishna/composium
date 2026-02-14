@@ -503,6 +503,147 @@
         .progress-bar:hover .progress-fill {
             background: linear-gradient(90deg, #ff6b6b, #ffcc00);
         }
+
+        /* Segment visualization styles */
+        .segment-section {
+            display: none;
+            margin-top: 20px;
+        }
+
+        .segment-section.visible {
+            display: block;
+        }
+
+        .segment-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .segment-header h3 {
+            font-size: 1rem;
+            color: #e94560;
+        }
+
+        .segment-timeline {
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 15px;
+        }
+
+        .segment-timeline canvas {
+            width: 100%;
+            height: 80px;
+            display: block;
+            border-radius: 4px;
+        }
+
+        .segment-legend {
+            display: flex;
+            gap: 20px;
+            margin-top: 10px;
+            flex-wrap: wrap;
+        }
+
+        .segment-legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.8rem;
+            color: #a0a8c0;
+        }
+
+        .segment-legend-color {
+            width: 16px;
+            height: 16px;
+            border-radius: 4px;
+        }
+
+        .segment-details {
+            margin-top: 15px;
+        }
+
+        .segment-item {
+            display: flex;
+            align-items: flex-start;
+            padding: 12px;
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 8px;
+            margin-bottom: 8px;
+            border-left: 4px solid;
+        }
+
+        .segment-item.speech {
+            border-color: #9b59b6;
+        }
+
+        .segment-item.melody {
+            border-color: #f1c40f;
+        }
+
+        .segment-item.rhythm {
+            border-color: #2ecc71;
+        }
+
+        .segment-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-right: 12px;
+            font-size: 1.3rem;
+            flex-shrink: 0;
+        }
+
+        .segment-icon.speech {
+            background: rgba(155, 89, 182, 0.3);
+        }
+
+        .segment-icon.melody {
+            background: rgba(241, 196, 15, 0.3);
+        }
+
+        .segment-icon.rhythm {
+            background: rgba(46, 204, 113, 0.3);
+        }
+
+        .segment-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .segment-info h4 {
+            font-size: 0.9rem;
+            margin-bottom: 4px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .segment-time {
+            font-size: 0.7rem;
+            color: #8892b0;
+            background: rgba(0, 0, 0, 0.3);
+            padding: 2px 8px;
+            border-radius: 10px;
+        }
+
+        .segment-transcript {
+            font-size: 0.85rem;
+            color: #d0d8e8;
+            margin-top: 4px;
+            font-style: italic;
+        }
+
+        .segment-instrument {
+            font-size: 0.75rem;
+            color: #e94560;
+            margin-top: 4px;
+        }
     </style>
 </head>
 <body>
@@ -635,6 +776,38 @@
             <audio id="vizAudioPlayer" style="display: none;"></audio>
         </div>
 
+        <!-- Segment Visualization Section -->
+        <div class="card segment-section" id="segmentSection">
+            <div class="segment-header">
+                <h3>Audio Segmentation</h3>
+            </div>
+
+            <div class="segment-timeline">
+                <div class="canvas-label">
+                    <span>Timeline: Commands vs Instruments</span>
+                </div>
+                <canvas id="segmentCanvas"></canvas>
+                <div class="segment-legend">
+                    <div class="segment-legend-item">
+                        <div class="segment-legend-color" style="background: #9b59b6;"></div>
+                        <span>Speech / Commands</span>
+                    </div>
+                    <div class="segment-legend-item">
+                        <div class="segment-legend-color" style="background: #f1c40f;"></div>
+                        <span>Melody (humming/singing)</span>
+                    </div>
+                    <div class="segment-legend-item">
+                        <div class="segment-legend-color" style="background: #2ecc71;"></div>
+                        <span>Rhythm (beatboxing)</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="segment-details" id="segmentDetails">
+                <!-- Segment items will be added here dynamically -->
+            </div>
+        </div>
+
         <div class="card result-section" id="result">
             <div class="result-header">
                 <h2>Your Track</h2>
@@ -690,6 +863,11 @@
         const vizProgressFill = document.getElementById('vizProgressFill');
         const vizAudioPlayer = document.getElementById('vizAudioPlayer');
 
+        // Segment visualization elements
+        const segmentSection = document.getElementById('segmentSection');
+        const segmentCanvas = document.getElementById('segmentCanvas');
+        const segmentDetails = document.getElementById('segmentDetails');
+
         let mediaRecorder = null;
         let audioChunks = [];
         let isRecording = false;
@@ -702,6 +880,8 @@
         let realtimeAnimationId = null;
         let currentAudioBlob = null;
         let currentVizData = null;
+        let currentSegments = null;
+        let currentDuration = null;
         let playheadAnimationId = null;
 
         const API_BASE = '';
@@ -919,6 +1099,10 @@
                     renderOnsetEnvelope(onsetCanvas, currentVizData, -1);
                     renderPitchContour(pitchCanvas, currentVizData, -1);
                 }
+                // Redraw segment timeline without playhead
+                if (currentSegments && currentDuration) {
+                    renderSegmentTimeline(currentSegments, currentDuration, -1);
+                }
             };
         }
 
@@ -934,6 +1118,11 @@
                 renderWaveform(waveformCanvas, currentVizData, progress);
                 renderOnsetEnvelope(onsetCanvas, currentVizData, progress);
                 renderPitchContour(pitchCanvas, currentVizData, progress);
+            }
+
+            // Redraw segment timeline with playhead
+            if (currentSegments && currentDuration) {
+                renderSegmentTimeline(currentSegments, currentDuration, progress);
             }
         }
 
@@ -1321,6 +1510,153 @@
             renderPitchContour(pitchCanvas, vizData, -1);
         }
 
+        // ============================================
+        // SEGMENT VISUALIZATION
+        // ============================================
+
+        const SEGMENT_COLORS = {
+            speech: { bg: 'rgba(155, 89, 182, 0.6)', border: '#9b59b6', text: '#d4b5e9' },
+            melody: { bg: 'rgba(241, 196, 15, 0.6)', border: '#f1c40f', text: '#f9e79f' },
+            rhythm: { bg: 'rgba(46, 204, 113, 0.6)', border: '#2ecc71', text: '#a9dfbf' }
+        };
+
+        const SEGMENT_ICONS = {
+            speech: '🎤',
+            melody: '🎵',
+            rhythm: '🥁'
+        };
+
+        function renderSegmentTimeline(segments, duration, playheadProgress = -1) {
+            const canvas = segmentCanvas;
+            const ctx = canvas.getContext('2d');
+            const dpr = window.devicePixelRatio || 1;
+
+            const rect = canvas.getBoundingClientRect();
+            canvas.width = rect.width * dpr;
+            canvas.height = rect.height * dpr;
+            ctx.scale(dpr, dpr);
+
+            const width = rect.width;
+            const height = rect.height;
+
+            // Clear
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
+            ctx.fillRect(0, 0, width, height);
+
+            // Draw time axis at bottom
+            ctx.fillStyle = '#8892b0';
+            ctx.font = '10px sans-serif';
+            ctx.textAlign = 'center';
+
+            // Draw time markers every second
+            for (let t = 0; t <= duration; t++) {
+                const x = (t / duration) * width;
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+                ctx.fillRect(x, height - 15, 1, 10);
+                ctx.fillStyle = '#8892b0';
+                ctx.fillText(`${t}s`, x, height - 2);
+            }
+
+            // Draw segments
+            const barHeight = height - 25;
+            const barTop = 5;
+
+            segments.forEach((segment, index) => {
+                const startX = (segment.start_seconds / duration) * width;
+                const endX = (segment.end_seconds / duration) * width;
+                const segWidth = endX - startX;
+                const type = segment.type;
+                const colors = SEGMENT_COLORS[type] || SEGMENT_COLORS.speech;
+
+                // Draw segment background
+                ctx.fillStyle = colors.bg;
+                ctx.fillRect(startX, barTop, segWidth, barHeight);
+
+                // Draw segment border
+                ctx.strokeStyle = colors.border;
+                ctx.lineWidth = 2;
+                ctx.strokeRect(startX, barTop, segWidth, barHeight);
+
+                // Draw segment label
+                if (segWidth > 40) {
+                    ctx.fillStyle = colors.text;
+                    ctx.font = 'bold 11px sans-serif';
+                    ctx.textAlign = 'center';
+
+                    const icon = SEGMENT_ICONS[type] || '🎵';
+                    const label = type.charAt(0).toUpperCase() + type.slice(1);
+
+                    ctx.fillText(`${icon} ${label}`, startX + segWidth / 2, barTop + barHeight / 2 + 4);
+                }
+            });
+
+            // Draw playhead if playing
+            if (playheadProgress >= 0) {
+                const playheadX = playheadProgress * width;
+                ctx.strokeStyle = '#ffffff';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(playheadX, 0);
+                ctx.lineTo(playheadX, height);
+                ctx.stroke();
+
+                // Playhead glow
+                ctx.shadowBlur = 8;
+                ctx.shadowColor = '#ffffff';
+                ctx.stroke();
+                ctx.shadowBlur = 0;
+            }
+        }
+
+        function displaySegments(segments, duration) {
+            if (!segments || segments.length === 0) {
+                segmentSection.classList.remove('visible');
+                return;
+            }
+
+            segmentSection.classList.add('visible');
+
+            // Render the timeline canvas
+            renderSegmentTimeline(segments, duration, -1);
+
+            // Build segment details list
+            segmentDetails.innerHTML = '';
+
+            segments.forEach((segment, index) => {
+                const type = segment.type;
+                const colors = SEGMENT_COLORS[type] || SEGMENT_COLORS.speech;
+                const icon = SEGMENT_ICONS[type] || '🎵';
+
+                const startTime = segment.start_seconds.toFixed(2);
+                const endTime = segment.end_seconds.toFixed(2);
+                const durationSec = (segment.end_seconds - segment.start_seconds).toFixed(2);
+
+                const div = document.createElement('div');
+                div.className = `segment-item ${type}`;
+
+                let content = `
+                    <div class="segment-icon ${type}">${icon}</div>
+                    <div class="segment-info">
+                        <h4>
+                            ${type.charAt(0).toUpperCase() + type.slice(1)} Segment
+                            <span class="segment-time">${startTime}s - ${endTime}s (${durationSec}s)</span>
+                        </h4>
+                `;
+
+                if (type === 'speech' && segment.transcript) {
+                    content += `<div class="segment-transcript">"${segment.transcript}"</div>`;
+                }
+
+                if (segment.instrument) {
+                    content += `<div class="segment-instrument">Instrument: ${segment.instrument}</div>`;
+                }
+
+                content += '</div>';
+                div.innerHTML = content;
+                segmentDetails.appendChild(div);
+            });
+        }
+
         async function startRecording() {
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -1436,6 +1772,14 @@
             // Set feedback text
             feedbackText.textContent = data.feedback_text || 'Track created successfully!';
 
+            // Display segments visualization
+            if (project.segments && project.segments.length > 0) {
+                // Calculate duration from segments
+                currentSegments = project.segments;
+                currentDuration = Math.max(...project.segments.map(s => s.end_seconds));
+                displaySegments(currentSegments, currentDuration);
+            }
+
             // Display layers
             layers.innerHTML = '';
             if (project.layers && project.layers.length > 0) {
@@ -1485,6 +1829,7 @@
         newBtn.addEventListener('click', () => {
             result.classList.remove('visible');
             visualizer.classList.remove('visible');
+            segmentSection.classList.remove('visible');
             audioPlayer.src = '';
             vizAudioPlayer.src = '';
             vizAudioPlayer.pause();
@@ -1493,6 +1838,8 @@
             vizCurrentTime.textContent = '0:00';
             currentAudioBlob = null;
             currentVizData = null;
+            currentSegments = null;
+            currentDuration = null;
             timer.textContent = '0:00';
             status.textContent = 'Click to start recording';
         });

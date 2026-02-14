@@ -155,18 +155,18 @@ async def process_recording(
     )
     logger.info(f"PROCESS: Created project {project_id}")
 
-    # Step 4: If we have speech instructions, parse them
-    if speech_transcripts:
-        logger.info("PROCESS: Step 4 - Parsing speech instructions...")
-        description = await description_parser.extract_instructions(speech_transcripts)
-        project.description = description
-        if description.tempo_bpm:
-            project.bpm = description.tempo_bpm
-        logger.info(
-            f"PROCESS: Parsed description: genre={description.genre}, tempo={description.tempo_bpm}, instruments={description.instruments}"
-        )
+    # Step 4: Populate project description from the segments the segmenter
+    # already enriched (instrument, semantic_command). Instrument extraction
+    # and command parsing now happen inside segment_recording(), so no
+    # separate description_parser call is needed here.
+    speech_segments = [s for s in segments if s.type == SegmentType.SPEECH and s.instrument]
+    if speech_segments:
+        from app.models.schemas import MusicDescription
+        instruments = [s.instrument for s in speech_segments if s.instrument]
+        project.description = MusicDescription(instruments=instruments)
+        logger.info(f"PROCESS: Step 4 - Project description from segments: instruments={instruments}")
     else:
-        logger.info("PROCESS: Step 4 - No speech instructions to parse")
+        logger.info("PROCESS: Step 4 - No instrument info on segments")
 
     # Step 5: Run the AI agent to orchestrate
     logger.info("PROCESS: Step 5 - Running AI agent...")
