@@ -10,8 +10,20 @@ from typing import Sequence
 from composium.notation import Score, score_to_abc
 
 
-def render(score: Score, output_path: str, keep_intermediates: bool = True) -> None:
-    """Render a Score to an MP3 file via ABC → MIDI → MP3 pipeline."""
+def render(
+    score: Score,
+    output_path: str,
+    keep_intermediates: bool = True,
+    pitch_shift: int = 0,
+) -> None:
+    """Render a Score to an MP3 file via ABC → MIDI → MP3 pipeline.
+
+    Args:
+        score: The Score to render
+        output_path: Path to save the output MP3
+        keep_intermediates: Whether to keep ABC and MIDI files
+        pitch_shift: Semitones to shift pitch (positive=higher, negative=lower)
+    """
     out = Path(output_path)
     stem = out.with_suffix("")
     abc_path = str(stem) + ".abc"
@@ -32,8 +44,19 @@ def render(score: Score, output_path: str, keep_intermediates: bool = True) -> N
     # 3. MIDI → MP3 (timidity renders to WAV, piped to ffmpeg for MP3)
     # Trim to score duration to remove timidity's sustain/reverb tail
     trim = f"-t {score.duration:.2f}" if score.duration > 0 else ""
+
+    # Build pitch shift filter if needed
+    # Using asetrate to change pitch and aresample to restore sample rate
+    # This shifts pitch without changing tempo
+    pitch_filter = ""
+    if pitch_shift != 0:
+        # Calculate the rate multiplier: 2^(semitones/12)
+        rate_mult = 2 ** (pitch_shift / 12)
+        # asetrate changes the sample rate (and thus pitch), then aresample restores it
+        pitch_filter = f"-af asetrate=44100*{rate_mult},aresample=44100"
+
     subprocess.run(
-        f"timidity {mid_path} -Ow -o - | ffmpeg -y -i - {trim} {output_path}",
+        f"timidity {mid_path} -Ow -o - | ffmpeg -y -i - {pitch_filter} {trim} {output_path}",
         shell=True,
         check=True,
         capture_output=True,

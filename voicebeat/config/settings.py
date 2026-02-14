@@ -28,6 +28,10 @@ class Settings(BaseSettings):
 
     default_bpm: int = 120
 
+    # Pitch shift in semitones (positive = higher, negative = lower)
+    # e.g., 12 = one octave up, -12 = one octave down
+    pitch_shift: int = 0
+
     class Config:
         env_file = str(ENV_FILE)
         env_file_encoding = "utf-8"

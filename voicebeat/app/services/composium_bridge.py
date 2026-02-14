@@ -148,8 +148,18 @@ async def render_melody(
     instrument: str,
     bpm: int,
     key: str | None = None,
+    pitch_shift: int | None = None,
 ) -> str:
-    """Render a melody via Composium's MIDI pipeline. Returns path to MP3."""
+    """Render a melody via Composium's MIDI pipeline. Returns path to MP3.
+
+    Args:
+        melody: The melody contour to render
+        instrument: Instrument name (e.g. "piano", "guitar")
+        bpm: Beats per minute
+        key: Key signature (e.g. "C", "Am")
+        pitch_shift: Semitones to shift pitch (positive=higher, negative=lower).
+                     If None, uses the value from settings.
+    """
     output_dir = Path(settings.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = str(output_dir / f"melody_{uuid.uuid4().hex[:8]}.mp3")
@@ -157,10 +167,13 @@ async def render_melody(
     analysis = melody_to_analysis(melody, bpm, key)
     instruments = _INSTRUMENT_MAP.get(instrument, ["piano"])
 
-    logger.info(f"composium_bridge: rendering melody instrument={instrument} -> {instruments}")
+    # Use provided pitch_shift or fall back to settings
+    shift = pitch_shift if pitch_shift is not None else settings.pitch_shift
+
+    logger.info(f"composium_bridge: rendering melody instrument={instrument} -> {instruments}, pitch_shift={shift}")
 
     score = await asyncio.to_thread(compose, analysis, instruments)
-    await asyncio.to_thread(render, score, output_path)
+    await asyncio.to_thread(render, score, output_path, pitch_shift=shift)
     return output_path
 
 
@@ -172,15 +185,27 @@ async def render_rhythm(
     rhythm: RhythmPattern,
     bpm: int,
     key: str | None = None,
+    pitch_shift: int | None = None,
 ) -> str:
-    """Render a rhythm pattern via Composium's MIDI pipeline. Returns path to MP3."""
+    """Render a rhythm pattern via Composium's MIDI pipeline. Returns path to MP3.
+
+    Args:
+        rhythm: The rhythm pattern to render
+        bpm: Beats per minute
+        key: Key signature
+        pitch_shift: Semitones to shift pitch (positive=higher, negative=lower).
+                     If None, uses the value from settings.
+    """
     output_dir = Path(settings.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = str(output_dir / f"rhythm_{uuid.uuid4().hex[:8]}.mp3")
 
     score = rhythm_to_score(rhythm, bpm, key)
 
-    logger.info(f"composium_bridge: rendering rhythm ({len(rhythm.beats)} beats, {bpm} BPM)")
+    # Use provided pitch_shift or fall back to settings
+    shift = pitch_shift if pitch_shift is not None else settings.pitch_shift
 
-    await asyncio.to_thread(render, score, output_path)
+    logger.info(f"composium_bridge: rendering rhythm ({len(rhythm.beats)} beats, {bpm} BPM, pitch_shift={shift})")
+
+    await asyncio.to_thread(render, score, output_path, pitch_shift=shift)
     return output_path
