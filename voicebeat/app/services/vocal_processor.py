@@ -378,6 +378,121 @@ async def pitch_shift_words(
     return output_path
 
 
+async def beat_snap_words(
+    audio_bytes: bytes,
+    words: list[dict],
+    rhythm_design: list[dict],
+    bpm: int = 120,
+    total_bars: int = 4,
+) -> str:
+    """
+    Time-stretch and reposition words onto beat grid positions.
+
+    Args:
+        audio_bytes: Full speech segment audio bytes
+        words: Word timestamps [{word, start, end}, ...]
+        rhythm_design: LLM output [{word, beat_position, bar}, ...]
+        bpm: Beats per minute
+        total_bars: Total bars for the output buffer
+
+    Returns:
+        Path to output MP3 file
+    """
+    sr = 22050
+    spb = 60.0 / bpm  # seconds per beat
+    bar_sec = 4 * spb  # seconds per bar (4/4 time)
+
+    # Load audio
+    try:
+        y, orig_sr = sf.read(io.BytesIO(audio_bytes))
+        if len(y.shape) > 1:
+            y = np.mean(y, axis=1)
+        if orig_sr != sr:
+            y = librosa.resample(y, orig_sr=orig_sr, target_sr=sr)
+        y = y.astype(np.float32)
+    except Exception:
+        y, _ = librosa.load(io.BytesIO(audio_bytes), sr=sr, mono=True)
+
+    # Create output buffer
+    total_seconds = total_bars * bar_sec + 1.0  # +1s padding
+    output = np.zeros(int(total_seconds * sr), dtype=np.float32)
+
+    seg_start = words[0]["start"] if words else 0.0
+
+    # Build sorted placement list from rhythm_design
+    placements = []
+    design_iter = iter(rhythm_design)
+    for w in words:
+        try:
+            d = next(design_iter)
+        except StopIteration:
+            break
+        bar = d.get("bar", 0)
+        beat_pos = d.get("beat_position", 0)  # 0-15 on 16th grid
+        target_sec = bar * bar_sec + (beat_pos / 4.0) * spb
+        placements.append((w, d, target_sec))
+
+    # Sort by target time
+    placements.sort(key=lambda x: x[2])
+
+    for i, (w, d, target_sec) in enumerate(placements):
+        # Extract word audio
+        w_start = max(0, int((w["start"] - seg_start) * sr))
+        w_end = min(len(y), int((w["end"] - seg_start) * sr))
+        word_audio = y[w_start:w_end]
+        if len(word_audio) < 256:
+            continue
+
+        # Calculate available slot: time until next word starts (or end of bar)
+        if i + 1 < len(placements):
+            slot_end = placements[i + 1][2]
+        else:
+            slot_end = target_sec + (w["end"] - w["start"]) * 1.5  # 1.5x original duration
+
+        available = max(0.05, slot_end - target_sec - 0.02)  # 20ms gap between words
+        current_duration = len(word_audio) / sr
+
+        # Time-stretch if needed
+        if current_duration > 0 and abs(available - current_duration) > 0.05:
+            rate = current_duration / available
+            rate = max(0.5, min(2.5, rate))  # Clamp stretch ratio
+            try:
+                word_audio = librosa.effects.time_stretch(word_audio, rate=rate)
+            except Exception as e:
+                logger.warning(f"vocal_processor: time stretch failed for '{w['word']}': {e}")
+
+        # Place in output buffer
+        out_start = int(target_sec * sr)
+        out_end = min(len(output), out_start + len(word_audio))
+        actual_len = out_end - out_start
+        if actual_len > 0:
+            fade = min(64, actual_len // 4)
+            chunk = word_audio[:actual_len].copy()
+            if fade > 0:
+                chunk[:fade] *= np.linspace(0, 1, fade)
+                chunk[-fade:] *= np.linspace(1, 0, fade)
+            output[out_start:out_end] += chunk
+
+    # Normalize
+    peak = np.max(np.abs(output))
+    if peak > 0:
+        output = output * (0.9 / peak)
+
+    # Export to MP3
+    output_dir = Path(settings.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_path = str(output_dir / f"vocal_rhythm_{uuid.uuid4().hex[:8]}.mp3")
+
+    wav_buffer = io.BytesIO()
+    sf.write(wav_buffer, output, sr, format="WAV")
+    wav_buffer.seek(0)
+    audio_seg = PydubSegment.from_wav(wav_buffer)
+    audio_seg.export(output_path, format="mp3")
+
+    logger.info(f"vocal_processor: exported rhythmic vocal to {output_path}")
+    return output_path
+
+
 def _detect_key_from_f0(
     f0: np.ndarray,
     voiced_flag: np.ndarray,
