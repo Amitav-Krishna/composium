@@ -21,6 +21,7 @@ def render(score: Score, output_path: str, keep_intermediates: bool = True) -> N
     abc_text = score_to_abc(score)
     with open(abc_path, "w") as f:
         f.write(abc_text)
+        print(f"Wrote ABC notation to {abc_path}")
 
     # 2. ABC → MIDI
     subprocess.run(
@@ -32,7 +33,7 @@ def render(score: Score, output_path: str, keep_intermediates: bool = True) -> N
     # 3. MIDI → MP3 (timidity renders to WAV, piped to ffmpeg for MP3)
     # Pad short audio to score duration (apad), trim long audio (reverb tails)
     if score.duration > 0:
-        af = f"-af \"apad=whole_dur={score.duration:.2f}\" -t {score.duration:.2f}"
+        af = f'-af "apad=whole_dur={score.duration:.2f}" -t {score.duration:.2f}'
     else:
         af = ""
     subprocess.run(
@@ -44,8 +45,16 @@ def render(score: Score, output_path: str, keep_intermediates: bool = True) -> N
 
     # 4. Verify output duration
     result = subprocess.run(
-        ["ffprobe", "-v", "quiet", "-show_entries", "format=duration",
-         "-of", "default=noprint_wrappers=1:nokey=1", output_path],
+        [
+            "ffprobe",
+            "-v",
+            "quiet",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            output_path,
+        ],
         capture_output=True,
         text=True,
     )
@@ -113,10 +122,14 @@ def layer_with_envelope(
     )
 
     cmd = [
-        "ffmpeg", "-y",
-        "-i", base_audio,
-        "-i", overlay_audio,
-        "-filter_complex", filter_str,
+        "ffmpeg",
+        "-y",
+        "-i",
+        base_audio,
+        "-i",
+        overlay_audio,
+        "-filter_complex",
+        filter_str,
     ]
     if duration is not None:
         cmd.extend(["-t", f"{duration:.2f}"])

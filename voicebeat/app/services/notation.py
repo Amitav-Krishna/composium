@@ -5,9 +5,10 @@ ABC notation builder and optional MIDI export.
 ABC is a human-readable text format for music notation.
 """
 
-from typing import Optional
-from pathlib import Path
 import sys
+from pathlib import Path
+from typing import Optional
+
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from app.models.schemas import MelodyContour, PitchEvent, RhythmPattern
@@ -215,13 +216,13 @@ def create_score_abc(
 
     # Voice definitions
     for i, (name, _) in enumerate(voices):
-        lines.append(f"V:{i+1} name=\"{name}\"")
+        lines.append(f'V:{i + 1} name="{name}"')
 
     lines.append("")
 
     # Voice content
     for i, (name, content) in enumerate(voices):
-        lines.append(f"V:{i+1}")
+        lines.append(f"V:{i + 1}")
         lines.append(content)
         lines.append("")
 
@@ -250,7 +251,9 @@ def melody_to_midi(
     try:
         from midiutil import MIDIFile
     except ImportError:
-        raise ImportError("midiutil is required for MIDI export. Install with: pip install midiutil")
+        raise ImportError(
+            "midiutil is required for MIDI export. Install with: pip install midiutil"
+        )
 
     bpm = tempo or melody.tempo_bpm or 120
 
@@ -277,5 +280,6 @@ def melody_to_midi(
     # Write to file
     with open(output_path, "wb") as f:
         midi.writeFile(f)
+        print(f"just wrote to {output_path}")
 
     return output_path
