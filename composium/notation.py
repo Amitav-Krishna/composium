@@ -32,6 +32,7 @@ class Voice:
     midi_program: int = 0  # GM instrument (0 = piano)
     clef: str = "treble"
     midi_channel: int | None = None  # Override auto-assigned channel (e.g. 10 for drums)
+    velocity: int | None = None  # 0-127, None = default
 
 
 @dataclass
@@ -188,6 +189,9 @@ def score_to_abc(score: Score) -> str:
         lines.append(f"%%MIDI program {voice.midi_program}")
         channel = voice.midi_channel if voice.midi_channel is not None else i
         lines.append(f"%%MIDI channel {channel}")
+        if voice.velocity is not None:
+            v = voice.velocity
+            lines.append(f"%%MIDI beat {v} {v} {v} 2")
 
         abc_measures = _voice_to_abc_measures(voice, score.key, beats_per_measure)
         # Join measures with bar lines, line break every 4 measures

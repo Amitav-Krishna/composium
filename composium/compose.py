@@ -8,11 +8,13 @@ from composium.notation import Analysis, Score, Voice
 from composium.instruments.piano import arrange_piano
 from composium.instruments.guitar import arrange_guitar
 from composium.instruments.drums import arrange_drums
+from composium.instruments.edm import arrange_edm
 
 _INSTRUMENTS: dict[str, object] = {
     "piano": arrange_piano,
     "guitar": arrange_guitar,
     "drums": arrange_drums,
+    "edm": arrange_edm,
 }
 
 
