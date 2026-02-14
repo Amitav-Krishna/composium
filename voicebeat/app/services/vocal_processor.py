@@ -236,6 +236,148 @@ async def autotune(
     return output_path
 
 
+async def pitch_shift_words(
+    audio_bytes: bytes,
+    words: list[dict],
+    melody_design: list[dict],
+    key_signature: str | None = None,
+    bpm: int = 120,
+) -> str:
+    """
+    Pitch-shift individual words to LLM-assigned MIDI notes.
+
+    Args:
+        audio_bytes: Full speech segment audio bytes
+        words: Word timestamps [{word, start, end}, ...]
+        melody_design: LLM output [{word, midi_note, duration_beats}, ...]
+        key_signature: Key for scale reference
+        bpm: Beats per minute
+
+    Returns:
+        Path to output MP3 file
+    """
+    sr = 22050
+    spb = 60.0 / bpm  # seconds per beat
+
+    # Load audio
+    try:
+        y, orig_sr = sf.read(io.BytesIO(audio_bytes))
+        if len(y.shape) > 1:
+            y = np.mean(y, axis=1)
+        if orig_sr != sr:
+            y = librosa.resample(y, orig_sr=orig_sr, target_sr=sr)
+        y = y.astype(np.float32)
+    except Exception:
+        y, _ = librosa.load(io.BytesIO(audio_bytes), sr=sr, mono=True)
+
+    # Build word-index lookup: match melody_design entries to words by text
+    word_to_design = {}
+    design_iter = iter(melody_design)
+    for w in words:
+        try:
+            d = next(design_iter)
+            word_to_design[id(w)] = d
+        except StopIteration:
+            break
+
+    # Calculate total output length from melody design
+    total_beats = 0
+    for d in melody_design:
+        total_beats = max(total_beats, d.get("start_beat", 0) + d.get("duration_beats", 1))
+    total_seconds = total_beats * spb
+    # Minimum: original audio length
+    total_seconds = max(total_seconds, len(y) / sr)
+    output = np.zeros(int(total_seconds * sr), dtype=np.float32)
+
+    # Detect segment start time (first word start) for offset calculation
+    seg_start = words[0]["start"] if words else 0.0
+
+    for w in words:
+        d = word_to_design.get(id(w))
+        if d is None:
+            continue
+
+        target_midi = d.get("midi_note", 60)
+        duration_beats = d.get("duration_beats", 1)
+        start_beat = d.get("start_beat")
+
+        # Extract word audio
+        w_start = max(0, int((w["start"] - seg_start) * sr))
+        w_end = min(len(y), int((w["end"] - seg_start) * sr))
+        word_audio = y[w_start:w_end]
+        if len(word_audio) < 512:
+            continue
+
+        # Detect current pitch of the word
+        f0, voiced_flag, _ = librosa.pyin(
+            word_audio, fmin=80, fmax=800, sr=sr, hop_length=512
+        )
+        voiced_freqs = f0[voiced_flag & ~np.isnan(f0)] if voiced_flag is not None else np.array([])
+
+        if len(voiced_freqs) > 0:
+            avg_freq = float(np.nanmean(voiced_freqs))
+            current_midi = 69 + 12 * np.log2(avg_freq / 440.0)
+            shift = target_midi - current_midi
+            # Clamp to +/- 7 semitones to avoid robotic artifacts
+            shift = max(-7, min(7, shift))
+
+            if abs(shift) > 0.1:
+                try:
+                    word_audio = librosa.effects.pitch_shift(
+                        word_audio, sr=sr, n_steps=shift
+                    )
+                except Exception as e:
+                    logger.warning(f"vocal_processor: pitch shift failed for '{w['word']}': {e}")
+
+        # Time-stretch to match target duration if start_beat is provided
+        if start_beat is not None:
+            target_duration = duration_beats * spb
+            current_duration = len(word_audio) / sr
+            if current_duration > 0 and abs(target_duration - current_duration) > 0.05:
+                rate = current_duration / target_duration
+                rate = max(0.5, min(2.0, rate))  # Clamp stretch ratio
+                try:
+                    word_audio = librosa.effects.time_stretch(word_audio, rate=rate)
+                except Exception as e:
+                    logger.warning(f"vocal_processor: time stretch failed for '{w['word']}': {e}")
+
+        # Place in output buffer
+        if start_beat is not None:
+            out_start = int(start_beat * spb * sr)
+        else:
+            out_start = int((w["start"] - seg_start) * sr)
+
+        out_end = min(len(output), out_start + len(word_audio))
+        actual_len = out_end - out_start
+        if actual_len > 0:
+            # Crossfade: 64 samples at boundaries
+            fade = min(64, actual_len // 4)
+            chunk = word_audio[:actual_len].copy()
+            if fade > 0:
+                chunk[:fade] *= np.linspace(0, 1, fade)
+                chunk[-fade:] *= np.linspace(1, 0, fade)
+            output[out_start:out_end] += chunk
+
+    # Normalize
+    peak = np.max(np.abs(output))
+    if peak > 0:
+        output = output * (0.9 / peak)
+
+    # Export to MP3
+    output_dir = Path(settings.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_path = str(output_dir / f"vocal_melody_{uuid.uuid4().hex[:8]}.mp3")
+
+    wav_buffer = io.BytesIO()
+    sf.write(wav_buffer, output, sr, format="WAV")
+    wav_buffer.seek(0)
+    audio_seg = PydubSegment.from_wav(wav_buffer)
+    audio_seg.export(output_path, format="mp3")
+
+    logger.info(f"vocal_processor: exported melodic vocal to {output_path}")
+    return output_path
+
+
 def _detect_key_from_f0(
     f0: np.ndarray,
     voiced_flag: np.ndarray,
