@@ -143,19 +143,33 @@ async def segment_recording(
     return segments
 
 
-def _merge_close_words(words: list[dict], gap_threshold: float) -> list[SpeechRegion]:
-    """Merge words that are close together into speech regions."""
+def _merge_close_words(
+    words: list[dict],
+    gap_threshold: float,
+    max_word_duration: float = 1.5,
+) -> list[SpeechRegion]:
+    """Merge words that are close together into speech regions.
+
+    Args:
+        words: Word dicts with 'start', 'end', 'word' keys from STT.
+        gap_threshold: Max gap (seconds) between words to merge.
+        max_word_duration: Cap on a single word's duration. STT engines
+            often stretch a word's end timestamp across musical content
+            (beatboxing, humming) that follows. Capping prevents this
+            from swallowing music regions into speech.
+    """
     if not words:
         return []
 
     regions = []
-    current_start = words[0].get("start", 0)
-    current_end = words[0].get("end", 0)
-    current_text = words[0].get("word", "")
+    w0 = words[0]
+    current_start = w0.get("start", 0)
+    current_end = min(w0.get("end", 0), current_start + max_word_duration)
+    current_text = w0.get("word", "")
 
     for word in words[1:]:
         word_start = word.get("start", 0)
-        word_end = word.get("end", 0)
+        word_end = min(word.get("end", 0), word_start + max_word_duration)
         word_text = word.get("word", "")
 
         # If gap between current region and this word is small, merge

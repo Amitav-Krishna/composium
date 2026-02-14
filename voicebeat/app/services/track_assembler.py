@@ -14,6 +14,9 @@ def render_layer(
     output_dir: Path | None = None,
 ) -> str:
     """
+    DEPRECATED: Use composium_bridge.render_rhythm() instead, which renders
+    via Composium's MIDI pipeline for higher quality output.
+
     Render a layer by placing samples on the rhythm grid.
 
     Args:

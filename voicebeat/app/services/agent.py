@@ -25,7 +25,7 @@ from app.models.schemas import (
     AudioSegment, SegmentType, MusicDescription, Layer, Project,
     Instrument, Genre, RhythmPattern, MelodyContour
 )
-from app.services import sample_lookup, track_assembler, rhythm_analyzer, pitch_analyzer
+from app.services import rhythm_analyzer, pitch_analyzer, composium_bridge
 
 
 # Initialize OpenAI client
@@ -95,7 +95,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "render_rhythm_layer",
-            "description": "Render a rhythm segment as a percussion layer using samples",
+            "description": "Render a rhythm segment as a percussion layer using MIDI synthesis",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -262,6 +262,11 @@ Your job is to:
 3. Set the tempo and genre based on the user's preferences
 4. Render layers and combine them into a final track
 
+You have access to a MIDI rendering engine (Composium) that produces professional-quality
+instrument sounds. When you render a melody layer, the engine will automatically generate
+appropriate accompaniment (chords, bass lines) for the chosen instrument. Available melodic
+instruments: piano, guitar, bass, synth, strings.
+
 Use the provided tools to accomplish this. When you're done, call the 'complete' tool with a summary.
 
 Be creative but follow the user's explicit instructions. If they say "make this a piano melody", assign piano to that segment."""
@@ -328,6 +333,17 @@ Be creative but follow the user's explicit instructions. If they say "make this 
     return project, state.summary or "Track created successfully"
 
 
+def _resolve_segment_id(short_id: str, state: OrchestratorState) -> str | None:
+    """Resolve a possibly-truncated segment ID to the full ID in state."""
+    if short_id in state.segment_data:
+        return short_id
+    # Try prefix match (GPT-4o sometimes uses truncated IDs)
+    for full_id in state.segment_data:
+        if full_id.startswith(short_id):
+            return full_id
+    return None
+
+
 async def _execute_tool(
     tool_call,
     state: OrchestratorState,
@@ -360,10 +376,10 @@ async def _execute_tool(
                 return {"success": False, "error": f"Unknown genre: {genre_str}"}
 
         elif name == "render_rhythm_layer":
-            segment_id = args["segment_id"]
+            segment_id = _resolve_segment_id(args["segment_id"], state)
             instruments = args.get("instruments", ["kick", "snare", "hi-hat"])
 
-            if segment_id not in state.segment_data:
+            if segment_id is None:
                 return {"success": False, "error": "Segment not found or not analyzed"}
 
             data = state.segment_data[segment_id]
@@ -376,19 +392,8 @@ async def _execute_tool(
             instrument_enums = [Instrument(i) for i in instruments if i in [e.value for e in Instrument]]
             rhythm = rhythm_analyzer.assign_instruments(rhythm, instrument_enums)
 
-            # Get samples
-            genre = state.genre or Genre.POP
-            desc = MusicDescription(genre=genre, instruments=instrument_enums)
-            sample_mapping = sample_lookup.lookup_samples(desc)
-
-            if not sample_mapping:
-                return {"success": False, "error": "No samples found"}
-
-            # Render
-            audio_file = track_assembler.render_layer(
-                rhythm=rhythm,
-                sample_mapping=sample_mapping,
-                bpm=state.project.bpm,
+            audio_file = await composium_bridge.render_rhythm(
+                rhythm, state.project.bpm, state.project.key_signature
             )
 
             layer = Layer(
@@ -397,7 +402,6 @@ async def _execute_tool(
                 instrument=instrument_enums[0] if instrument_enums else None,
                 segment_type=SegmentType.RHYTHM,
                 rhythm=rhythm,
-                sample_mapping=sample_mapping,
                 audio_file=audio_file,
             )
             state.rendered_layers.append(layer)
@@ -405,10 +409,10 @@ async def _execute_tool(
             return {"success": True, "layer_id": layer.id, "message": f"Rendered rhythm layer with {instruments}"}
 
         elif name == "render_melody_layer":
-            segment_id = args["segment_id"]
+            segment_id = _resolve_segment_id(args["segment_id"], state)
             instrument = args["instrument"]
 
-            if segment_id not in state.segment_data:
+            if segment_id is None:
                 return {"success": False, "error": "Segment not found or not analyzed"}
 
             data = state.segment_data[segment_id]
@@ -417,8 +421,9 @@ async def _execute_tool(
 
             melody: MelodyContour = data["melody"]
 
-            # For MVP, render melody using simple synthesis
-            audio_file = await _render_melody_audio(melody, instrument, state.project.bpm)
+            audio_file = await composium_bridge.render_melody(
+                melody, instrument, state.project.bpm, state.project.key_signature
+            )
 
             try:
                 inst_enum = Instrument(instrument)
@@ -475,7 +480,7 @@ def _build_context_message(
         data = segment_data.get(segment.id, {})
         duration = segment.end_seconds - segment.start_seconds
 
-        lines.append(f"\n### Segment {segment.id[:8]} ({segment.type.value})")
+        lines.append(f"\n### Segment {segment.id} ({segment.type.value})")
         lines.append(f"- Duration: {duration:.2f}s")
         lines.append(f"- Time: {segment.start_seconds:.2f}s - {segment.end_seconds:.2f}s")
 
@@ -500,65 +505,3 @@ def _build_context_message(
     lines.append("Use the tools provided to accomplish this.")
 
     return "\n".join(lines)
-
-
-async def _render_melody_audio(
-    melody: MelodyContour,
-    instrument: str,
-    bpm: int,
-) -> str:
-    """
-    Render a melody to audio using simple synthesis.
-
-    For MVP, we use sine wave synthesis. Better sounds can be added later.
-    """
-    import numpy as np
-    from pydub import AudioSegment as PydubSegment
-    from pydub.generators import Sine
-
-    output_dir = Path(settings.output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    # Calculate total duration
-    if not melody.pitches:
-        # Create silent audio
-        silent = PydubSegment.silent(duration=2000)
-        filename = f"melody_{uuid.uuid4().hex[:8]}.wav"
-        output_path = output_dir / filename
-        silent.export(str(output_path), format="wav")
-        return str(output_path)
-
-    last_pitch = melody.pitches[-1]
-    total_duration_ms = int((last_pitch.time_seconds + last_pitch.duration_seconds) * 1000)
-    total_duration_ms = max(total_duration_ms, 1000)
-
-    # Create base silent track
-    output = PydubSegment.silent(duration=total_duration_ms)
-
-    # Add each note
-    for pitch in melody.pitches:
-        freq = pitch.frequency_hz
-        duration_ms = int(pitch.duration_seconds * 1000)
-        start_ms = int(pitch.time_seconds * 1000)
-
-        # Generate sine wave for this note
-        try:
-            note = Sine(freq).to_audio_segment(duration=duration_ms)
-
-            # Apply simple envelope (fade in/out)
-            fade_time = min(20, duration_ms // 4)
-            note = note.fade_in(fade_time).fade_out(fade_time)
-
-            # Adjust volume based on confidence
-            volume_adjust = (pitch.confidence - 1.0) * 10  # -10dB to 0dB
-            note = note + volume_adjust
-
-            output = output.overlay(note, position=start_ms)
-        except Exception:
-            pass  # Skip notes that fail to generate
-
-    filename = f"melody_{uuid.uuid4().hex[:8]}.wav"
-    output_path = output_dir / filename
-    output.export(str(output_path), format="wav")
-
-    return str(output_path)
