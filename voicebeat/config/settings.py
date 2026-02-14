@@ -4,7 +4,7 @@ from pydantic_settings import BaseSettings
 
 # Get the voicebeat root directory (parent of config/)
 VOICEBEAT_ROOT = Path(__file__).parent.parent
-ENV_FILE = VOICEBEAT_ROOT / ".env"
+ENV_FILE = VOICEBEAT_ROOT.parent / ".env"
 
 
 class Settings(BaseSettings):
