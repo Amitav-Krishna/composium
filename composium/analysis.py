@@ -67,11 +67,21 @@ def analyze(audio_path: str) -> Analysis:
     tempo = int(round(float(np.asarray(tempo_val).flat[0])))
     beat_times = list(librosa.frames_to_time(beat_frames, sr=sr).astype(float))
 
-    # Pitch tracking via pyin (good for monophonic humming/singing)
-    f0, voiced_flag, _ = librosa.pyin(
-        y, fmin=80, fmax=600, sr=sr, frame_length=2048, hop_length=512
+    # Detect onsets (note attacks) to split notes even when pitch stays the same
+    # This helps capture "da da da" patterns where pitch is constant
+    # Use lower delta threshold for more sensitive peak detection
+    hop_length = 512
+    onset_frames = librosa.onset.onset_detect(
+        y=y, sr=sr, hop_length=hop_length, backtrack=True, delta=0.05
     )
-    times = librosa.times_like(f0, sr=sr, hop_length=512)
+    onset_frame_set = set(onset_frames.tolist())
+
+    # Pitch tracking via pyin (good for monophonic humming/singing)
+    # Use fmin=130Hz (C3) to capture vocal range while filtering bass rumble
+    f0, voiced_flag, _ = librosa.pyin(
+        y, fmin=130, fmax=800, sr=sr, frame_length=2048, hop_length=hop_length
+    )
+    times = librosa.times_like(f0, sr=sr, hop_length=hop_length)
 
     # Convert to MIDI, quantize, segment into Note events
     notes: list[Note] = []
@@ -90,13 +100,16 @@ def analyze(audio_path: str) -> Analysis:
             midi_int = int(round(midi_float))
             pitch_classes.append(midi_int % 12)
 
-            if midi_int != prev_midi:
-                # Close previous note
+            # Check if this frame is an onset (new note attack)
+            is_onset = i in onset_frame_set and prev_midi is not None
+
+            if midi_int != prev_midi or is_onset:
+                # Close previous note (pitch changed OR onset detected)
                 if prev_midi is not None:
                     dur_sec = t - note_start_time
                     dur_beats = dur_sec / spb
                     start_beat = note_start_time / spb
-                    if dur_beats > 0.1:
+                    if dur_beats > 0.02:
                         notes.append(Note(prev_midi, start_beat, dur_beats))
                 prev_midi = midi_int
                 note_start_time = t
@@ -106,7 +119,7 @@ def analyze(audio_path: str) -> Analysis:
                 dur_sec = t - note_start_time
                 dur_beats = dur_sec / spb
                 start_beat = note_start_time / spb
-                if dur_beats > 0.1:
+                if dur_beats > 0.02:
                     notes.append(Note(prev_midi, start_beat, dur_beats))
                 prev_midi = None
 
@@ -115,7 +128,7 @@ def analyze(audio_path: str) -> Analysis:
         dur_sec = duration - note_start_time
         dur_beats = dur_sec / spb
         start_beat = note_start_time / spb
-        if dur_beats > 0.1:
+        if dur_beats > 0.02:
             notes.append(Note(prev_midi, start_beat, dur_beats))
 
     key = _detect_key(np.array(pitch_classes)) if pitch_classes else "C"

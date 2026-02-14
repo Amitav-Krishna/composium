@@ -504,6 +504,99 @@
             background: linear-gradient(90deg, #ff6b6b, #ffcc00);
         }
 
+        /* Pitch control styles */
+        .pitch-control {
+            margin-top: 20px;
+            padding: 15px;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 8px;
+        }
+
+        .pitch-control label {
+            display: block;
+            font-size: 0.9rem;
+            color: #8892b0;
+            margin-bottom: 10px;
+        }
+
+        .pitch-slider-container {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .pitch-slider {
+            flex: 1;
+            -webkit-appearance: none;
+            appearance: none;
+            height: 6px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 3px;
+            outline: none;
+        }
+
+        .pitch-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 18px;
+            height: 18px;
+            background: linear-gradient(135deg, #e94560, #ff6b6b);
+            border-radius: 50%;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+
+        .pitch-slider::-webkit-slider-thumb:hover {
+            transform: scale(1.2);
+        }
+
+        .pitch-slider::-moz-range-thumb {
+            width: 18px;
+            height: 18px;
+            background: linear-gradient(135deg, #e94560, #ff6b6b);
+            border-radius: 50%;
+            cursor: pointer;
+            border: none;
+        }
+
+        .pitch-value {
+            min-width: 80px;
+            text-align: center;
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: #e94560;
+        }
+
+        .pitch-presets {
+            display: flex;
+            gap: 8px;
+            margin-top: 10px;
+            flex-wrap: wrap;
+        }
+
+        .pitch-preset {
+            padding: 6px 12px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 20px;
+            color: #a0a8c0;
+            font-size: 0.75rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .pitch-preset:hover {
+            background: rgba(233, 69, 96, 0.2);
+            border-color: #e94560;
+            color: #e94560;
+        }
+
+        .pitch-preset.active {
+            background: rgba(233, 69, 96, 0.3);
+            border-color: #e94560;
+            color: #e94560;
+        }
+
         /* Segment visualization styles */
         .segment-section {
             display: none;
@@ -816,6 +909,29 @@
 
             <audio class="audio-player" id="audioPlayer" controls></audio>
 
+            <!-- Pitch Control Slider -->
+            <div class="pitch-control">
+                <label>Pitch Adjustment (semitones) <span style="font-size: 0.75rem; opacity: 0.7;">— also affects playback speed</span></label>
+                <div class="pitch-slider-container">
+                    <span style="color: #8892b0; font-size: 0.8rem;">-12</span>
+                    <input type="range" class="pitch-slider" id="pitchSlider" min="-12" max="12" value="0" step="1">
+                    <span style="color: #8892b0; font-size: 0.8rem;">+12</span>
+                    <div class="pitch-value" id="pitchValue">0 st</div>
+                </div>
+                <div class="pitch-presets">
+                    <button class="pitch-preset" data-pitch="-12">-1 octave</button>
+                    <button class="pitch-preset" data-pitch="-7">-5th</button>
+                    <button class="pitch-preset" data-pitch="-5">-4th</button>
+                    <button class="pitch-preset active" data-pitch="0">Original</button>
+                    <button class="pitch-preset" data-pitch="5">+4th</button>
+                    <button class="pitch-preset" data-pitch="7">+5th</button>
+                    <button class="pitch-preset" data-pitch="12">+1 octave</button>
+                </div>
+                <p style="font-size: 0.7rem; color: #666; margin-top: 8px;">
+                    Tip: Set PITCH_SHIFT in .env for permanent pitch adjustment without speed change.
+                </p>
+            </div>
+
             <div class="feedback">
                 <p class="feedback-label">What I understood:</p>
                 <p class="feedback-text" id="feedbackText"></p>
@@ -884,7 +1000,18 @@
         let currentDuration = null;
         let playheadAnimationId = null;
 
+        // Pitch shifting
+        let playbackAudioContext = null;
+        let pitchShiftNode = null;
+        let audioSource = null;
+        let currentPitchShift = 0;
+
         const API_BASE = '';
+
+        // Pitch slider elements
+        const pitchSlider = document.getElementById('pitchSlider');
+        const pitchValue = document.getElementById('pitchValue');
+        const pitchPresets = document.querySelectorAll('.pitch-preset');
 
         function formatTime(secs) {
             const m = Math.floor(secs / 60);
@@ -1842,6 +1969,7 @@
             currentDuration = null;
             timer.textContent = '0:00';
             status.textContent = 'Click to start recording';
+            resetPitchControl();
         });
 
         fileInput.addEventListener('change', async (e) => {
@@ -1850,6 +1978,61 @@
                 await processAudio(file);
             }
         });
+
+        // ============================================
+        // PITCH SHIFTING
+        // ============================================
+
+        function updatePitchDisplay(semitones) {
+            const sign = semitones > 0 ? '+' : '';
+            pitchValue.textContent = `${sign}${semitones} st`;
+
+            // Update preset button states
+            pitchPresets.forEach(btn => {
+                const btnPitch = parseInt(btn.dataset.pitch);
+                btn.classList.toggle('active', btnPitch === semitones);
+            });
+        }
+
+        function applyPitchShift(semitones) {
+            currentPitchShift = semitones;
+
+            // Apply pitch shift to the audio player using playbackRate
+            // This changes both pitch and speed, but it's a simple solution
+            // For proper pitch-only shifting, we'd need a more complex DSP solution
+            const rate = Math.pow(2, semitones / 12);
+
+            // Apply to both audio players
+            audioPlayer.playbackRate = rate;
+
+            // Optionally preserve pitch (inverts the effect - changes speed, keeps pitch)
+            // We want the opposite: change pitch, keep speed
+            // Modern browsers support this with preservesPitch = false
+            audioPlayer.preservesPitch = false;
+        }
+
+        pitchSlider.addEventListener('input', (e) => {
+            const semitones = parseInt(e.target.value);
+            updatePitchDisplay(semitones);
+            applyPitchShift(semitones);
+        });
+
+        pitchPresets.forEach(btn => {
+            btn.addEventListener('click', () => {
+                const semitones = parseInt(btn.dataset.pitch);
+                pitchSlider.value = semitones;
+                updatePitchDisplay(semitones);
+                applyPitchShift(semitones);
+            });
+        });
+
+        // Reset pitch when starting new recording
+        function resetPitchControl() {
+            pitchSlider.value = 0;
+            currentPitchShift = 0;
+            updatePitchDisplay(0);
+            audioPlayer.playbackRate = 1;
+        }
     </script>
 </body>
 </html>

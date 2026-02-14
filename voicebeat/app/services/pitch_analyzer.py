@@ -15,6 +15,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from app.models.schemas import MelodyContour, PitchEvent
+from config.settings import settings
 
 
 # Note names for MIDI conversion
@@ -30,10 +31,10 @@ ABC_NOTES = {
 async def analyze_melody(
     audio_bytes: bytes,
     sr: int = 22050,
-    fmin: float = 80,
-    fmax: float = 800,
+    fmin: float = None,
+    fmax: float = None,
     hop_length: int = 512,
-    min_note_duration: float = 0.1,
+    min_note_duration: float = None,
 ) -> MelodyContour:
     """
     Analyze a melody segment and extract pitch events.
@@ -49,10 +50,27 @@ async def analyze_melody(
     Returns:
         MelodyContour with pitch events, key signature, and ABC notation
     """
+    # Use settings defaults if not provided
+    if fmin is None:
+        fmin = settings.pitch_fmin
+    if fmax is None:
+        fmax = settings.pitch_fmax
+    if min_note_duration is None:
+        min_note_duration = settings.min_note_duration
+
     # Load audio
     y = _load_audio(audio_bytes, sr)
 
+    # Detect onsets (note attacks) to split notes even when pitch doesn't change
+    # This helps capture "da da da" patterns where the pitch stays the same
+    # Use configurable delta threshold for peak detection sensitivity
+    onset_frames_arr = librosa.onset.onset_detect(
+        y=y, sr=sr, hop_length=hop_length, backtrack=True, delta=settings.onset_delta
+    )
+    onset_frames = set(onset_frames_arr.tolist())
+
     # Extract pitch using pyin (better for voice than basic pitch detection)
+    # Higher fmin filters out heavy low notes and background noise
     f0, voiced_flag, voiced_probs = librosa.pyin(
         y,
         fmin=fmin,
@@ -61,8 +79,10 @@ async def analyze_melody(
         hop_length=hop_length,
     )
 
-    # Convert to pitch events
-    pitches = _extract_pitch_events(f0, voiced_flag, voiced_probs, sr, hop_length, min_note_duration)
+    # Convert to pitch events, using onset detection to split same-pitch notes
+    pitches = _extract_pitch_events(
+        f0, voiced_flag, voiced_probs, sr, hop_length, min_note_duration, onset_frames
+    )
 
     # Detect key signature
     key_sig = _detect_key(pitches) if pitches else None
@@ -102,15 +122,23 @@ def _extract_pitch_events(
     sr: int,
     hop_length: int,
     min_duration: float,
+    onset_frames: set[int] = None,
 ) -> list[PitchEvent]:
-    """Convert frame-wise pitch data to note events."""
+    """Convert frame-wise pitch data to note events.
+
+    Args:
+        onset_frames: Set of frame indices where onsets were detected.
+                      Used to split notes even when pitch doesn't change.
+    """
     if f0 is None or len(f0) == 0:
         return []
 
     events = []
     frame_duration = hop_length / sr
+    onset_frames = onset_frames or set()
 
     # Group consecutive frames with the same pitch into notes
+    # But also split at onset boundaries (for "da da da" patterns)
     current_note = None
     current_start = None
     current_frames = 0
@@ -123,18 +151,21 @@ def _extract_pitch_events(
             midi = _freq_to_midi(freq)
             rounded_midi = round(midi)
 
+            # Check if this frame is an onset (new note attack)
+            is_onset = i in onset_frames and current_note is not None
+
             if current_note is None:
                 # Start new note
                 current_note = rounded_midi
                 current_start = time
                 current_frames = 1
                 current_confidence = [prob if prob else 1.0]
-            elif rounded_midi == current_note:
-                # Continue current note
+            elif rounded_midi == current_note and not is_onset:
+                # Continue current note (same pitch, no onset)
                 current_frames += 1
                 current_confidence.append(prob if prob else 1.0)
             else:
-                # Different note - save current and start new
+                # Different note OR onset detected - save current and start new
                 duration = current_frames * frame_duration
                 if duration >= min_duration:
                     events.append(_create_pitch_event(

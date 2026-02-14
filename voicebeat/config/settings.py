@@ -32,6 +32,19 @@ class Settings(BaseSettings):
     # e.g., 12 = one octave up, -12 = one octave down
     pitch_shift: int = 0
 
+    # Pitch detection frequency range (Hz)
+    # 130Hz = C3, captures most vocal humming while filtering bass rumble
+    pitch_fmin: int = 130
+    pitch_fmax: int = 800
+
+    # Minimum note duration in seconds (lower = more separate notes detected)
+    # 0.02 = 20ms, captures rapid "da da da" patterns
+    min_note_duration: float = 0.05
+
+    # Onset detection sensitivity (lower = more sensitive, detects more note attacks)
+    # Range: 0.01 (very sensitive) to 0.2 (less sensitive)
+    onset_delta: float = 0.05
+
     class Config:
         env_file = str(ENV_FILE)
         env_file_encoding = "utf-8"

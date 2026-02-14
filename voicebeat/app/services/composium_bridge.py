@@ -28,12 +28,18 @@ logger = logging.getLogger(__name__)
 # 1a. Instrument mapping: VoiceBeat instrument name -> Composium instrument list
 # ---------------------------------------------------------------------------
 
+# Map VoiceBeat instrument names to Composium instruments.
+# Using "simple:X" renders only the detected notes with instrument X's sound.
+# Using instrument names like "piano" adds harmonies and accompaniment.
 _INSTRUMENT_MAP: dict[str, list[str]] = {
-    "piano":   ["piano"],
-    "guitar":  ["guitar"],
-    "strings": ["piano"],       # closest GM match
-    "synth":   ["edm"],         # EDM has synth bass + pads
-    "bass":    ["piano"],       # piano includes Alberti bass voice
+    "piano":   ["simple:piano"],    # Simple: just the detected notes with piano sound
+    "guitar":  ["simple:guitar"],   # Simple: just the detected notes with guitar sound
+    "strings": ["simple:strings"],  # Simple: just the detected notes with strings sound
+    "synth":   ["simple:synth"],    # Simple: just the detected notes with synth sound
+    "bass":    ["simple:bass"],     # Simple: just the detected notes with bass sound
+    "violin":  ["simple:violin"],   # Simple: just the detected notes with violin sound
+    "flute":   ["simple:flute"],    # Simple: just the detected notes with flute sound
+    "melody":  ["melody"],          # Generic melody (flute sound)
 }
 
 # ---------------------------------------------------------------------------
@@ -173,7 +179,7 @@ async def render_melody(
     logger.info(f"composium_bridge: rendering melody instrument={instrument} -> {instruments}, pitch_shift={shift}")
 
     score = await asyncio.to_thread(compose, analysis, instruments)
-    await asyncio.to_thread(render, score, output_path, pitch_shift=shift)
+    await asyncio.to_thread(render, score, output_path, True, shift)
     return output_path
 
 
@@ -207,5 +213,5 @@ async def render_rhythm(
 
     logger.info(f"composium_bridge: rendering rhythm ({len(rhythm.beats)} beats, {bpm} BPM, pitch_shift={shift})")
 
-    await asyncio.to_thread(render, score, output_path, pitch_shift=shift)
+    await asyncio.to_thread(render, score, output_path, True, shift)
     return output_path
