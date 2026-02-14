@@ -1,5 +1,6 @@
-from pydantic_settings import BaseSettings
 from pathlib import Path
+
+from pydantic_settings import BaseSettings
 
 # Get the voicebeat root directory (parent of config/)
 VOICEBEAT_ROOT = Path(__file__).parent.parent
@@ -22,6 +23,13 @@ class Settings(BaseSettings):
     output_dir: Path = Path("./output")
 
     default_bpm: int = 120
+
+    cloudflare_r2_token: str = ""
+    r2_account_id: str = ""
+    r2_access_key_id: str = ""
+    r2_secret_access_key: str = ""
+    r2_public_url: str = ""
+    r2_bucket_name: str = ""
 
     class Config:
         env_file = str(ENV_FILE)
