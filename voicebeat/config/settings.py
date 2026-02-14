@@ -1,5 +1,6 @@
-from pydantic_settings import BaseSettings
 from pathlib import Path
+
+from pydantic_settings import BaseSettings
 
 # Get the voicebeat root directory (parent of config/)
 VOICEBEAT_ROOT = Path(__file__).parent.parent
@@ -8,7 +9,13 @@ ENV_FILE = VOICEBEAT_ROOT / ".env"
 
 class Settings(BaseSettings):
     smallest_api_key: str = ""
-    openai_api_key: str = ""
+    openai_api_key: str
+
+    r2_account_id: str
+    r2_access_key_id: str
+    r2_secret_access_key: str
+    r2_public_url: str
+    r2_bucket_name: str
 
     pulse_model: str = "pulse"
     pulse_language: str = "en"
@@ -24,9 +31,11 @@ class Settings(BaseSettings):
     class Config:
         env_file = str(ENV_FILE)
         env_file_encoding = "utf-8"
+        extra = "ignore"
 
 
 settings = Settings()
+print("current settings:", settings)
 
 # Debug: Print what was loaded
 if not settings.smallest_api_key:
