@@ -1,3 +1,4 @@
+import collections
 import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -9,6 +10,24 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from app.api.routes import router
 from config.settings import settings
 
+
+class MemoryLogHandler(logging.Handler):
+    """In-memory ring buffer that captures recent log entries."""
+
+    def __init__(self, capacity=500):
+        super().__init__()
+        self.buffer = collections.deque(maxlen=capacity)
+
+    def emit(self, record):
+        self.buffer.append(self.format(record))
+
+    def get_logs(self):
+        return list(self.buffer)
+
+    def clear(self):
+        self.buffer.clear()
+
+
 # Configure logging to show all our debug info
 logging.basicConfig(
     level=logging.INFO,
@@ -18,6 +37,11 @@ logging.basicConfig(
 # Set our app modules to INFO level
 for module in ['app.api.routes', 'app.services.segmenter', 'app.services.transcription', 'app.services.agent']:
     logging.getLogger(module).setLevel(logging.INFO)
+
+# Add in-memory log buffer for the log viewer
+log_buffer = MemoryLogHandler(capacity=500)
+log_buffer.setFormatter(logging.Formatter('%(asctime)s | %(name)s | %(message)s', datefmt='%H:%M:%S'))
+logging.getLogger().addHandler(log_buffer)
 
 
 app = FastAPI(

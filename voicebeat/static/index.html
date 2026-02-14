@@ -193,6 +193,31 @@
             font-size: 1.2rem;
         }
 
+        .layer-play {
+            width: 32px;
+            height: 32px;
+            background: rgba(233, 69, 96, 0.2);
+            border: 1px solid rgba(233, 69, 96, 0.4);
+            border-radius: 50%;
+            color: #e94560;
+            font-size: 0.8rem;
+            cursor: pointer;
+            margin-left: auto;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s ease;
+        }
+
+        .layer-play:hover {
+            background: rgba(233, 69, 96, 0.4);
+        }
+
+        .layer-play.playing {
+            background: rgba(233, 69, 96, 0.5);
+            color: #fff;
+        }
+
         .layer-info h4 {
             font-size: 0.9rem;
             margin-bottom: 2px;
@@ -503,6 +528,126 @@
         .progress-bar:hover .progress-fill {
             background: linear-gradient(90deg, #ff6b6b, #ffcc00);
         }
+
+        /* Refinement section */
+        .refine-section {
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .refine-section h3 {
+            font-size: 1rem;
+            margin-bottom: 12px;
+            color: #e94560;
+        }
+
+        .refine-hint {
+            color: #8892b0;
+            font-size: 0.85rem;
+            margin-bottom: 12px;
+        }
+
+        .refine-actions {
+            display: flex;
+            gap: 10px;
+        }
+
+        .refine-actions .btn {
+            flex: 1;
+        }
+
+        .record-btn-small {
+            padding: 12px 24px;
+            border: 1px solid rgba(233, 69, 96, 0.4);
+            border-radius: 8px;
+            background: rgba(233, 69, 96, 0.15);
+            color: #e94560;
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .record-btn-small:hover {
+            background: rgba(233, 69, 96, 0.3);
+            transform: translateY(-2px);
+        }
+
+        .record-btn-small.recording {
+            background: rgba(233, 69, 96, 0.5);
+            color: #fff;
+            animation: pulse 1.5s infinite;
+        }
+
+        .record-btn-small:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        /* Layer delete button */
+        .layer-delete {
+            width: 28px;
+            height: 28px;
+            background: rgba(255, 71, 87, 0.15);
+            border: 1px solid rgba(255, 71, 87, 0.3);
+            border-radius: 50%;
+            color: #ff6b81;
+            font-size: 0.75rem;
+            cursor: pointer;
+            margin-left: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s ease;
+        }
+
+        .layer-delete:hover {
+            background: rgba(255, 71, 87, 0.4);
+            color: #fff;
+        }
+
+        /* Log viewer */
+        .log-section {
+            margin-top: 20px;
+        }
+
+        .log-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .log-header h3 {
+            font-size: 1rem;
+            color: #8892b0;
+        }
+
+        #logToggle {
+            font-size: 0.85rem;
+            color: #e94560;
+        }
+
+        .log-content {
+            margin-top: 15px;
+        }
+
+        #logOutput {
+            background: rgba(0, 0, 0, 0.4);
+            border-radius: 8px;
+            padding: 12px;
+            font-family: 'Menlo', 'Consolas', monospace;
+            font-size: 0.75rem;
+            color: #a0a8c0;
+            max-height: 300px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-break: break-all;
+            line-height: 1.5;
+        }
     </style>
 </head>
 <body>
@@ -638,7 +783,7 @@
         <div class="card result-section" id="result">
             <div class="result-header">
                 <h2>Your Track</h2>
-                <button class="btn btn-secondary" id="newBtn">New Recording</button>
+                <button class="btn btn-secondary" id="newBtn">Start Fresh</button>
             </div>
 
             <audio class="audio-player" id="audioPlayer" controls></audio>
@@ -649,6 +794,25 @@
             </div>
 
             <div class="layers" id="layers"></div>
+
+            <div class="refine-section" id="refineSection">
+                <h3>Refine Your Track</h3>
+                <p class="refine-hint">Record new instructions — speak, hum, or beatbox</p>
+                <div class="refine-actions">
+                    <button class="record-btn-small" id="refineRecordBtn">Record</button>
+                </div>
+                <p class="status" id="refineStatus"></p>
+            </div>
+        </div>
+
+        <div class="card log-section" id="logSection">
+            <div class="log-header" onclick="toggleLogs()">
+                <h3>Logs</h3>
+                <span id="logToggle">Show</span>
+            </div>
+            <div class="log-content" id="logContent" style="display: none;">
+                <pre id="logOutput"></pre>
+            </div>
         </div>
     </div>
 
@@ -690,6 +854,11 @@
         const vizProgressFill = document.getElementById('vizProgressFill');
         const vizAudioPlayer = document.getElementById('vizAudioPlayer');
 
+        // Refinement elements
+        const refineSection = document.getElementById('refineSection');
+        const refineRecordBtn = document.getElementById('refineRecordBtn');
+        const refineStatus = document.getElementById('refineStatus');
+
         let mediaRecorder = null;
         let audioChunks = [];
         let isRecording = false;
@@ -703,8 +872,21 @@
         let currentAudioBlob = null;
         let currentVizData = null;
         let playheadAnimationId = null;
+        let currentProject = null;
+
+        // Refinement recording state
+        let isRefineRecording = false;
+        let refineMediaRecorder = null;
+        let refineAudioChunks = [];
 
         const API_BASE = '';
+
+        // Auto-start refinement mic after track finishes playing
+        audioPlayer.addEventListener('ended', () => {
+            if (currentProject && !isRefineRecording) {
+                refineRecordBtn.click();
+            }
+        });
 
         function formatTime(secs) {
             const m = Math.floor(secs / 60);
@@ -1321,6 +1503,66 @@
             renderPitchContour(pitchCanvas, vizData, -1);
         }
 
+        // Silence detection: auto-stop recording after sustained silence
+        const SILENCE_THRESHOLD = 0.05;  // RMS below this = silence (handles background noise)
+        const SILENCE_DURATION_MS = 3000; // 3 seconds of silence to trigger
+        const MIN_RECORDING_MS = 2000;    // Don't auto-stop before 2s of recording
+        let silenceDetectorId = null;
+        let silenceStart = null;
+        let recordingStart = null;
+
+        function startSilenceDetection(analyserNode, onSilence) {
+            silenceStart = null;
+            recordingStart = Date.now();
+            const bufferLength = analyserNode.frequencyBinCount;
+            const dataArray = new Uint8Array(bufferLength);
+
+            function check() {
+                analyserNode.getByteTimeDomainData(dataArray);
+
+                // Compute RMS
+                let sum = 0;
+                for (let i = 0; i < bufferLength; i++) {
+                    const val = (dataArray[i] - 128) / 128;
+                    sum += val * val;
+                }
+                const rms = Math.sqrt(sum / bufferLength);
+
+                const elapsed = Date.now() - recordingStart;
+                if (elapsed < MIN_RECORDING_MS) {
+                    // Too early to auto-stop
+                    silenceDetectorId = requestAnimationFrame(check);
+                    return;
+                }
+
+                if (rms < SILENCE_THRESHOLD) {
+                    if (silenceStart === null) {
+                        silenceStart = Date.now();
+                        console.log(`Silence started (RMS=${rms.toFixed(4)}, threshold=${SILENCE_THRESHOLD})`);
+                    } else if (Date.now() - silenceStart >= SILENCE_DURATION_MS) {
+                        console.log('Silence detected — auto-stopping recording');
+                        stopSilenceDetection();
+                        onSilence();
+                        return;
+                    }
+                } else {
+                    silenceStart = null;
+                }
+
+                silenceDetectorId = requestAnimationFrame(check);
+            }
+
+            silenceDetectorId = requestAnimationFrame(check);
+        }
+
+        function stopSilenceDetection() {
+            if (silenceDetectorId) {
+                cancelAnimationFrame(silenceDetectorId);
+                silenceDetectorId = null;
+            }
+            silenceStart = null;
+        }
+
         async function startRecording() {
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -1345,9 +1587,16 @@
                 isRecording = true;
                 recordBtn.classList.add('recording');
                 recordBtnText.textContent = 'Stop';
-                status.textContent = 'Recording... Click to stop';
+                status.textContent = 'Recording... Auto-stops after 3s of silence';
                 startTimer();
                 hideError();
+
+                // Auto-stop after sustained silence (uses analyser from real-time viz)
+                if (analyser) {
+                    startSilenceDetection(analyser, () => {
+                        stopRecording();
+                    });
+                }
 
             } catch (err) {
                 showError('Could not access microphone. Please allow microphone access.');
@@ -1356,6 +1605,7 @@
 
         function stopRecording() {
             if (mediaRecorder && isRecording) {
+                stopSilenceDetection();
                 mediaRecorder.stop();
                 isRecording = false;
                 recordBtn.classList.remove('recording');
@@ -1417,19 +1667,53 @@
             }
         }
 
+        let layerAudio = null;
+
+        function toggleLayerPlay(button, audioUrl) {
+            if (button.classList.contains('playing')) {
+                layerAudio.pause();
+                button.classList.remove('playing');
+                button.innerHTML = '&#9658;';
+                return;
+            }
+
+            document.querySelectorAll('.layer-play.playing').forEach(btn => {
+                btn.classList.remove('playing');
+                btn.innerHTML = '&#9658;';
+            });
+
+            if (!layerAudio) {
+                layerAudio = new Audio();
+            }
+            layerAudio.src = audioUrl;
+            layerAudio.play();
+            button.classList.add('playing');
+            button.innerHTML = '&#9646;&#9646;';
+
+            layerAudio.onended = () => {
+                button.classList.remove('playing');
+                button.innerHTML = '&#9658;';
+            };
+        }
+
         function displayResult(data) {
             const project = data.project;
+            currentProject = project;
 
             // Set audio player source if mixed file exists
+            // Cache-bust: mix filename is stable per project, so browser may serve stale audio
+            const cacheBust = `?t=${Date.now()}`;
             if (project.mixed_file) {
                 const filename = project.mixed_file.split('/').pop();
-                audioPlayer.src = `${API_BASE}/download/${filename}`;
+                audioPlayer.src = `${API_BASE}/download/${filename}${cacheBust}`;
+                audioPlayer.play().catch(() => {});
             } else if (project.layers && project.layers.length > 0) {
                 // Try to play the first layer's audio
                 const firstLayer = project.layers.find(l => l.audio_file);
                 if (firstLayer) {
                     const filename = firstLayer.audio_file.split('/').pop();
-                    audioPlayer.src = `${API_BASE}/download/${filename}`;
+                    audioPlayer.src = `${API_BASE}/download/${filename}${cacheBust}`;
+                    audioPlayer.play().catch(() => {});
                 }
             }
 
@@ -1443,19 +1727,26 @@
                     const icon = getLayerIcon(layer.instrument || layer.segment_type);
                     const div = document.createElement('div');
                     div.className = 'layer';
+
+                    const hasAudio = layer.audio_file;
+                    const filename = hasAudio ? layer.audio_file.split('/').pop() : '';
+                    const audioUrl = hasAudio ? `${API_BASE}/download/${filename}` : '';
+
                     div.innerHTML = `
                         <div class="layer-icon">${icon}</div>
                         <div class="layer-info">
                             <h4>${layer.name}</h4>
                             <p>${layer.instrument || layer.segment_type} - ${project.bpm} BPM</p>
                         </div>
+                        ${hasAudio ? `<button class="layer-play" onclick="toggleLayerPlay(this, '${audioUrl}')">&#9658;</button>` : ''}
+                        <button class="layer-delete" onclick="deleteLayer('${layer.id}')">&#10005;</button>
                     `;
                     layers.appendChild(div);
                 });
             }
 
             result.classList.add('visible');
-            status.textContent = 'Done! Click to record again';
+            status.textContent = 'Done! Refine your track below or start fresh.';
         }
 
         function getLayerIcon(type) {
@@ -1483,6 +1774,10 @@
         });
 
         newBtn.addEventListener('click', () => {
+            if (layerAudio) {
+                layerAudio.pause();
+                layerAudio = null;
+            }
             result.classList.remove('visible');
             visualizer.classList.remove('visible');
             audioPlayer.src = '';
@@ -1493,8 +1788,10 @@
             vizCurrentTime.textContent = '0:00';
             currentAudioBlob = null;
             currentVizData = null;
+            currentProject = null;
             timer.textContent = '0:00';
             status.textContent = 'Click to start recording';
+            refineStatus.textContent = '';
         });
 
         fileInput.addEventListener('change', async (e) => {
@@ -1503,6 +1800,161 @@
                 await processAudio(file);
             }
         });
+
+        // ============================================
+        // REFINEMENT
+        // ============================================
+
+        async function refineTrack(audioBlob) {
+            if (!currentProject) return;
+
+            refineRecordBtn.disabled = true;
+            refineStatus.textContent = 'Refining your track...';
+
+            const formData = new FormData();
+            formData.append('instructions', '');
+            formData.append('audio', audioBlob, 'refinement.webm');
+
+            try {
+                const response = await fetch(
+                    `${API_BASE}/api/v1/projects/${currentProject.id}/refine`,
+                    { method: 'POST', body: formData }
+                );
+
+                if (!response.ok) {
+                    const data = await response.json();
+                    throw new Error(data.detail || 'Refinement failed');
+                }
+
+                const data = await response.json();
+                displayResult(data);
+                refineStatus.textContent = 'Track updated!';
+            } catch (err) {
+                refineStatus.textContent = 'Error: ' + (err.message || 'Refinement failed');
+            } finally {
+                refineRecordBtn.disabled = false;
+            }
+        }
+
+        async function deleteLayer(layerId) {
+            if (!currentProject) return;
+
+            try {
+                await fetch(
+                    `${API_BASE}/api/v1/projects/${currentProject.id}/layers/${layerId}`,
+                    { method: 'DELETE' }
+                );
+
+                // Re-mix
+                await fetch(`${API_BASE}/api/v1/projects/${currentProject.id}/mix`);
+
+                // Refresh project
+                const projResp = await fetch(`${API_BASE}/api/v1/projects/${currentProject.id}`);
+                const project = await projResp.json();
+                displayResult({ project, feedback_text: 'Removed layer' });
+            } catch (err) {
+                refineStatus.textContent = 'Error removing layer';
+            }
+        }
+
+        // Voice-only refinement recording
+        refineRecordBtn.addEventListener('click', async () => {
+            if (isRefineRecording) {
+                if (refineMediaRecorder) {
+                    refineMediaRecorder.stop();
+                }
+                return;
+            }
+
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                refineMediaRecorder = new MediaRecorder(stream);
+                refineAudioChunks = [];
+
+                refineMediaRecorder.ondataavailable = (e) => {
+                    refineAudioChunks.push(e.data);
+                };
+
+                // Set up audio analysis for silence detection during refinement
+                const refineAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                const refineAnalyser = refineAudioCtx.createAnalyser();
+                refineAnalyser.fftSize = 2048;
+                const refineSource = refineAudioCtx.createMediaStreamSource(stream);
+                refineSource.connect(refineAnalyser);
+
+                refineMediaRecorder.onstop = async () => {
+                    const audioBlob = new Blob(refineAudioChunks, { type: 'audio/webm' });
+                    stream.getTracks().forEach(track => track.stop());
+                    stopSilenceDetection();
+                    refineAudioCtx.close();
+                    isRefineRecording = false;
+                    refineRecordBtn.classList.remove('recording');
+                    refineRecordBtn.textContent = 'Record';
+
+                    await refineTrack(audioBlob);
+                };
+
+                refineMediaRecorder.start();
+                isRefineRecording = true;
+                refineRecordBtn.classList.add('recording');
+                refineRecordBtn.textContent = 'Stop';
+                refineStatus.textContent = 'Recording... Auto-stops after 3s of silence';
+
+                // Auto-stop refinement recording after sustained silence
+                startSilenceDetection(refineAnalyser, () => {
+                    if (refineMediaRecorder) {
+                        refineMediaRecorder.stop();
+                    }
+                });
+            } catch (err) {
+                refineStatus.textContent = 'Could not access microphone';
+            }
+        });
+
+        // ============================================
+        // LOG VIEWER
+        // ============================================
+
+        let logVisible = false;
+        let logPollInterval = null;
+        let logLastIndex = 0;
+
+        function toggleLogs() {
+            const logContent = document.getElementById('logContent');
+            const logToggle = document.getElementById('logToggle');
+            logVisible = !logVisible;
+
+            if (logVisible) {
+                logContent.style.display = 'block';
+                logToggle.textContent = 'Hide';
+                logLastIndex = 0;
+                document.getElementById('logOutput').textContent = '';
+                fetchLogs();
+                logPollInterval = setInterval(fetchLogs, 2000);
+            } else {
+                logContent.style.display = 'none';
+                logToggle.textContent = 'Show';
+                if (logPollInterval) {
+                    clearInterval(logPollInterval);
+                    logPollInterval = null;
+                }
+            }
+        }
+
+        async function fetchLogs() {
+            try {
+                const response = await fetch(`${API_BASE}/api/v1/logs?since=${logLastIndex}`);
+                const data = await response.json();
+                if (data.logs.length > 0) {
+                    const logOutput = document.getElementById('logOutput');
+                    logOutput.textContent += data.logs.join('\n') + '\n';
+                    logLastIndex = data.total;
+                    logOutput.scrollTop = logOutput.scrollHeight;
+                }
+            } catch (err) {
+                // Silently ignore fetch errors for logs
+            }
+        }
     </script>
 </body>
 </html>

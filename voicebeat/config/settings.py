@@ -9,6 +9,8 @@ ENV_FILE = VOICEBEAT_ROOT / ".env"
 class Settings(BaseSettings):
     smallest_api_key: str = ""
     openai_api_key: str = ""
+    openrouter_api_key: str = ""
+    subagent_model: str = "minimax/minimax-m2.5"
 
     pulse_model: str = "pulse"
     pulse_language: str = "en"
