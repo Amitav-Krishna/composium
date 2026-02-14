@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Composium — ABC Player</title>
+<script src="https://cdn.jsdelivr.net/npm/abcjs@6.4.4/dist/abcjs-basic-min.js"></script>
+<style>
+  /* --- abcjs audio controls (inlined — not shipped in CDN dist) --- */
+  .abcjs-inline-audio {
+    height: 26px; padding: 0 5px; border-radius: 3px;
+    background-color: #424242; display: flex; align-items: center; box-sizing: border-box;
+  }
+  .abcjs-inline-audio.abcjs-disabled { opacity: 0.5; }
+  .abcjs-inline-audio .abcjs-btn {
+    display: block; width: 28px; height: 34px; margin-right: 2px; padding: 7px 4px;
+    background: none !important; border: 1px solid transparent; box-sizing: border-box; line-height: 1;
+  }
+  .abcjs-btn g { fill: #f4f4f4; stroke: #f4f4f4; }
+  .abcjs-inline-audio .abcjs-btn:hover g { fill: #ccc; stroke: #ccc; }
+  .abcjs-inline-audio .abcjs-midi-selection.abcjs-pushed,
+  .abcjs-inline-audio .abcjs-midi-loop.abcjs-pushed,
+  .abcjs-inline-audio .abcjs-midi-reset.abcjs-pushed {
+    border: 1px solid #ccc; background-color: #666; box-sizing: border-box;
+  }
+  .abcjs-inline-audio .abcjs-midi-start .abcjs-pause-svg,
+  .abcjs-inline-audio .abcjs-midi-start .abcjs-loading-svg { display: none; }
+  .abcjs-inline-audio .abcjs-midi-start.abcjs-pushed .abcjs-play-svg,
+  .abcjs-inline-audio .abcjs-midi-start.abcjs-loading .abcjs-play-svg { display: none; }
+  .abcjs-inline-audio .abcjs-midi-start.abcjs-pushed .abcjs-pause-svg { display: block; }
+  .abcjs-inline-audio .abcjs-midi-progress-background {
+    background-color: #424242; height: 10px; border-radius: 5px; border: 2px solid #ccc;
+    margin: 0 8px 0 15px; position: relative; flex: 1; padding: 0; box-sizing: border-box;
+  }
+  .abcjs-inline-audio .abcjs-midi-progress-indicator {
+    width: 20px; margin-left: -10px; height: 14px; background-color: #f4f4f4;
+    position: absolute; display: inline-block; border-radius: 6px; top: -4px; left: 0; box-sizing: border-box;
+  }
+  .abcjs-inline-audio .abcjs-midi-clock {
+    margin-left: 4px; margin-top: 1px; margin-right: 2px; display: inline-block;
+    font-family: sans-serif; font-size: 16px; box-sizing: border-box; color: #f4f4f4;
+  }
+  .abcjs-inline-audio .abcjs-tempo-wrapper {
+    font-size: 10px; color: #f4f4f4; box-sizing: border-box; display: flex; align-items: center;
+  }
+  .abcjs-inline-audio .abcjs-midi-tempo {
+    border-radius: 2px; border: none; margin: 0 2px 0 4px; width: 42px; padding-left: 2px; box-sizing: border-box;
+  }
+  .abcjs-inline-audio .abcjs-loading .abcjs-loading-svg { display: inherit; }
+  .abcjs-inline-audio .abcjs-loading {
+    outline: none; animation: abcjs-spin 1s linear infinite;
+  }
+  .abcjs-inline-audio .abcjs-loading-svg circle { stroke: #f4f4f4; }
+  @keyframes abcjs-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+  .abcjs-css-warning { display: none; }
+</style>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: #121218;
+    color: #e0e0e6;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  header {
+    width: 100%;
+    padding: 1.2rem 2rem;
+    background: #1a1a24;
+    border-bottom: 1px solid #2a2a3a;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+  }
+
+  header h1 {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: #c8b4ff;
+    letter-spacing: 0.02em;
+  }
+
+  header h1 span {
+    color: #7a7a8e;
+    font-weight: 400;
+  }
+
+  main {
+    width: 100%;
+    max-width: 960px;
+    padding: 1.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  /* --- Controls --- */
+  .controls {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+
+  button {
+    background: #2a2a3a;
+    color: #e0e0e6;
+    border: 1px solid #3a3a4e;
+    border-radius: 6px;
+    padding: 0.5rem 1.1rem;
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+
+  button:hover { background: #36365a; border-color: #5a5a7e; }
+  button:active { background: #42426a; }
+  button:disabled { opacity: 0.4; cursor: default; }
+
+  .btn-play { background: #3b2d6b; border-color: #5a44a0; }
+  .btn-play:hover { background: #4a3a80; }
+
+  .btn-stop { background: #3b2020; border-color: #6a3030; }
+  .btn-stop:hover { background: #4a2828; }
+
+  .status {
+    margin-left: auto;
+    font-size: 0.82rem;
+    color: #7a7a8e;
+  }
+
+  /* --- Sheet music --- */
+  .sheet-wrap {
+    background: #ffffff;
+    border-radius: 8px;
+    padding: 1rem 1.5rem;
+    overflow-x: auto;
+  }
+
+  /* Cursor highlight during playback */
+  .sheet-wrap svg .abcjs-cursor {
+    stroke: #6a44cc;
+    stroke-width: 3;
+    opacity: 0.7;
+  }
+
+  /* --- Synth audio controls (progress bar) --- */
+  #synth-ui {
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  /* --- ABC source panel --- */
+  details {
+    border: 1px solid #2a2a3a;
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  summary {
+    padding: 0.7rem 1rem;
+    background: #1a1a24;
+    cursor: pointer;
+    font-size: 0.9rem;
+    user-select: none;
+  }
+
+  summary:hover { background: #222234; }
+
+  .editor-area {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem 1rem;
+    background: #16161e;
+  }
+
+  textarea {
+    width: 100%;
+    min-height: 220px;
+    background: #0e0e14;
+    color: #c8c8d4;
+    border: 1px solid #2a2a3a;
+    border-radius: 6px;
+    padding: 0.75rem;
+    font-family: 'Fira Code', 'Consolas', monospace;
+    font-size: 0.85rem;
+    line-height: 1.5;
+    resize: vertical;
+    tab-size: 4;
+  }
+
+  textarea:focus { outline: none; border-color: #5a44a0; }
+
+  .editor-actions {
+    display: flex;
+    gap: 0.5rem;
+  }
+
+  /* --- Responsive --- */
+  @media (max-width: 640px) {
+    header { padding: 0.8rem 1rem; }
+    main { padding: 1rem; }
+    .sheet-wrap { padding: 0.5rem; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Composium <span>/ ABC Player</span></h1>
+</header>
+
+<main>
+  <!-- Transport controls -->
+  <div class="controls">
+    <button class="btn-play" id="btn-play" disabled>&#9654; Play</button>
+    <button id="btn-pause" disabled>&#10074;&#10074; Pause</button>
+    <button class="btn-stop" id="btn-stop" disabled>&#9632; Stop</button>
+    <span class="status" id="status">Loading synth&hellip;</span>
+  </div>
+
+  <!-- Rendered sheet music -->
+  <div class="sheet-wrap">
+    <div id="notation"></div>
+  </div>
+
+  <!-- Synth controller UI (progress bar) — separate from notation -->
+  <div id="synth-ui"></div>
+
+  <!-- ABC source editor -->
+  <details>
+    <summary>ABC Source</summary>
+    <div class="editor-area">
+      <textarea id="abc-src" spellcheck="false"></textarea>
+      <div class="editor-actions">
+        <button id="btn-render">Render</button>
+        <button id="btn-reset">Reset to original</button>
+      </div>
+    </div>
+  </details>
+</main>
+
+<script>
+const DEFAULT_ABC = `X:1
+T:Composium Soundtrack
+M:4/4
+L:1/8
+Q:1/4=152
+K:G
+V:1 clef=treble name="Right Hand"
+%%MIDI program 0
+%%MIDI channel 1
+z2d2zb^aaz | ^g^de^d^cB2zfffa^ga | z3bc'c'^aaf2 | d2zgfd^dedBc | | | ^ccz2d2zb^aa ||
+V:2 clef=bass name="Left Hand"
+%%MIDI program 0
+%%MIDI channel 2
+G,,D,B,,D,G,,D,B,,D, | B,,F,D,F,B,,F,D,F, | F,,^C,A,,^C,F,,^C,A,,^C, | G,,D,B,,D,G,,D,B,,D, | | | G,,D,B,,D,G,,D,B,,D, ||`;
+
+const srcEl     = document.getElementById('abc-src');
+const statusEl  = document.getElementById('status');
+const btnPlay   = document.getElementById('btn-play');
+const btnPause  = document.getElementById('btn-pause');
+const btnStop   = document.getElementById('btn-stop');
+
+let synthControl = null;
+let visualObj    = null;
+
+// --- Rendering -----------------------------------------------------------
+
+function renderAbc(abc) {
+  visualObj = ABCJS.renderAbc('notation', abc, {
+    responsive: 'resize',
+    staffwidth: 800,
+    add_classes: true
+  });
+  initSynth();
+}
+
+// --- Synth setup ---------------------------------------------------------
+
+async function initSynth() {
+  if (!visualObj || !visualObj.length) return;
+
+  // Clean up previous instance
+  if (synthControl) {
+    try { synthControl.destroy(); } catch (_) {}
+  }
+
+  synthControl = new ABCJS.synth.SynthController();
+  synthControl.load('#synth-ui', null, {
+    displayPlay: false,
+    displayProgress: true,
+    displayWarp: false
+  });
+
+  try {
+    await synthControl.setTune(visualObj[0], false, {
+      qpm: 152,
+      program: 0,
+      chordsOff: true
+    });
+    setStatus('Ready');
+    btnPlay.disabled = false;
+  } catch (err) {
+    setStatus('Synth error: ' + err.message);
+    console.error(err);
+  }
+}
+
+// --- Transport -----------------------------------------------------------
+
+btnPlay.addEventListener('click', async () => {
+  if (!synthControl) return;
+
+  // AudioContext must be resumed from a user gesture
+  if (ABCJS.synth.activeAudioContext && ABCJS.synth.activeAudioContext().state === 'suspended') {
+    await ABCJS.synth.activeAudioContext().resume();
+  }
+
+  try {
+    await synthControl.play();
+    setStatus('Playing');
+    btnPlay.disabled = true;
+    btnPause.disabled = false;
+    btnStop.disabled = false;
+  } catch (err) {
+    setStatus('Playback error: ' + err.message);
+    console.error(err);
+  }
+});
+
+btnPause.addEventListener('click', () => {
+  if (!synthControl) return;
+  synthControl.pause();
+  setStatus('Paused');
+  btnPlay.disabled = false;
+  btnPause.disabled = true;
+});
+
+btnStop.addEventListener('click', () => {
+  if (!synthControl) return;
+  synthControl.restart();
+  synthControl.pause();
+  setStatus('Stopped');
+  btnPlay.disabled = false;
+  btnPause.disabled = true;
+  btnStop.disabled = true;
+});
+
+// --- Editor actions ------------------------------------------------------
+
+document.getElementById('btn-render').addEventListener('click', () => {
+  renderAbc(srcEl.value);
+});
+
+document.getElementById('btn-reset').addEventListener('click', () => {
+  srcEl.value = DEFAULT_ABC;
+  renderAbc(DEFAULT_ABC);
+});
+
+// --- Helpers -------------------------------------------------------------
+
+function setStatus(msg) {
+  statusEl.textContent = msg;
+}
+
+// --- Boot ----------------------------------------------------------------
+
+srcEl.value = DEFAULT_ABC;
+renderAbc(DEFAULT_ABC);
+</script>
+</body>
+</html>
