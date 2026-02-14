@@ -5,3 +5,5 @@ __pycache__/
 *.mp3
 *.abc
 node_modules/
+.env
+.env/
