@@ -30,10 +30,13 @@ def render(score: Score, output_path: str, keep_intermediates: bool = True) -> N
     )
 
     # 3. MIDI → MP3 (timidity renders to WAV, piped to ffmpeg for MP3)
-    # Trim to score duration to remove timidity's sustain/reverb tail
-    trim = f"-t {score.duration:.2f}" if score.duration > 0 else ""
+    # Pad short audio to score duration (apad), trim long audio (reverb tails)
+    if score.duration > 0:
+        af = f"-af \"apad=whole_dur={score.duration:.2f}\" -t {score.duration:.2f}"
+    else:
+        af = ""
     subprocess.run(
-        f"timidity {mid_path} -Ow -o - | ffmpeg -y -i - {trim} {output_path}",
+        f"timidity {mid_path} -Ow -o - | ffmpeg -y -i - {af} {output_path}",
         shell=True,
         check=True,
         capture_output=True,

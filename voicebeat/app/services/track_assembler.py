@@ -108,28 +108,36 @@ def mix_project(
     if not project.layers:
         raise ValueError("Project has no layers to mix")
 
-    # Load all layer audio files
-    layers: list[AudioSegment] = []
+    # Load all layer audio files with their bar offsets
+    layers_with_offset: list[tuple[AudioSegment, int]] = []
     max_duration = 0
 
     for layer in project.layers:
         if layer.audio_file:
             try:
                 audio = AudioSegment.from_file(layer.audio_file)
-                layers.append(audio)
-                max_duration = max(max_duration, len(audio))
+                # Convert start_bar to milliseconds offset
+                # 4 beats per bar (4/4 time), seconds_per_beat = 60/bpm
+                offset_ms = int(layer.start_bar * 4 * (60.0 / project.bpm) * 1000)
+                layers_with_offset.append((audio, offset_ms))
+                max_duration = max(max_duration, offset_ms + len(audio))
             except Exception:
                 pass
 
-    if not layers:
+    if not layers_with_offset:
         raise ValueError("No valid layer audio files found")
 
-    # Create base track with max duration
-    mixed = AudioSegment.silent(duration=max_duration)
+    # Create base track with max duration (stereo 44100Hz to match rendered layers)
+    mixed = AudioSegment.silent(duration=max_duration, frame_rate=44100).set_channels(2)
 
-    # Overlay all layers
-    for layer_audio in layers:
-        mixed = mixed.overlay(layer_audio)
+    # Overlay all layers at their respective positions
+    for layer_audio, offset_ms in layers_with_offset:
+        # Normalize format before overlay to avoid sample rate / channel mismatches
+        if layer_audio.frame_rate != 44100:
+            layer_audio = layer_audio.set_frame_rate(44100)
+        if layer_audio.channels != 2:
+            layer_audio = layer_audio.set_channels(2)
+        mixed = mixed.overlay(layer_audio, position=offset_ms)
 
     # Normalize to -3 dBFS
     target_dbfs = -3.0
