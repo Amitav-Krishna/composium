@@ -137,18 +137,28 @@ class VocalSubagent(BaseSubagent):
         key = project.key_signature or "C major"
         bpm = project.bpm
 
+        lyrics_filter = (
+            "## IMPORTANT: Lyrics filtering\n"
+            "The word list may include the user's full speech transcript with instructions mixed in "
+            "(e.g. 'make me a rock song about...'). ONLY include actual lyric words in your design — "
+            "skip instruction/direction words. If the transcript is entirely instructional, compose "
+            "suitable lyrics based on the described theme."
+        )
+
         if self.mode == "melodic":
-            return f"""You are a vocal melody designer. You receive spoken lyrics with word timestamps
-and design a singing melody for them.
+            return f"""You are a vocal melody designer. You receive a word list (possibly from a speech transcript)
+and design a singing melody for the lyrics.
 
 ## Your task
-Assign a MIDI note, start beat, and duration to each word using design_vocal_melody.
+Assign a MIDI note, start beat, and duration to each lyric word using design_vocal_melody.
 Then call render_vocal to produce the audio. Then call done.
 
 ## Musical context
 - Key: {key}
 - BPM: {bpm}
 - Scale notes for {key}: use notes that fit this key
+
+{lyrics_filter}
 
 ## Guidelines
 - Keep the melody simple and singable — stepwise motion, small intervals
@@ -159,16 +169,18 @@ Then call render_vocal to produce the audio. Then call done.
 - Leave small gaps between phrases for breathing"""
 
         else:  # rhythmic
-            return f"""You are a vocal rhythm designer for rap/spoken word. You receive spoken lyrics
-with word timestamps and design beat-grid placements for them.
+            return f"""You are a vocal rhythm designer for rap/spoken word. You receive a word list
+(possibly from a speech transcript) and design beat-grid placements for the lyrics.
 
 ## Your task
-Assign a bar and beat_position (0-15 on the 16th-note grid) to each word using design_vocal_rhythm.
+Assign a bar and beat_position (0-15 on the 16th-note grid) to each lyric word using design_vocal_rhythm.
 Then call render_vocal to produce the audio. Then call done.
 
 ## Musical context
 - BPM: {bpm}
 - 16th-note grid: positions 0-15 per bar, where 0=downbeat, 4=beat 2, 8=beat 3, 12=beat 4
+
+{lyrics_filter}
 
 ## Guidelines
 - Emphasize the groove — key words on strong beats (0, 4, 8, 12)
@@ -194,10 +206,16 @@ Then call render_vocal to produce the audio. Then call done.
         if instructions.get("style_notes"):
             lines.append(f"## Style: {instructions['style_notes']}\n")
 
-        lines.append("## Lyrics with word timestamps:")
+        if instructions.get("transcript"):
+            lines.append(f'## Full transcript:\n"{instructions["transcript"]}"\n')
+
+        lines.append("## Words (select only lyrics, skip instructions):")
         for i, w in enumerate(words, 1):
-            dur = w["end"] - w["start"]
-            lines.append(f'{i}. "{w["word"]}" — {w["start"]:.2f}s–{w["end"]:.2f}s ({dur:.2f}s)')
+            if "start" in w and "end" in w:
+                dur = w["end"] - w["start"]
+                lines.append(f'{i}. "{w["word"]}" — {w["start"]:.2f}s–{w["end"]:.2f}s ({dur:.2f}s)')
+            else:
+                lines.append(f'{i}. "{w["word"]}"')
 
         if instructions.get("sections"):
             total_bars = max((s.get("end_bar", 0) for s in instructions["sections"]), default=4)
@@ -236,30 +254,11 @@ Then call render_vocal to produce the audio. Then call done.
                 return {"success": False, "error": "No design yet — call design tool first"}
 
             layer_name = args.get("layer_name", "Vocals")
-            words = instructions.get("words", [])
-            segment_audio = instructions.get("segment_audio", {})
-            segment_id = instructions.get("segment_id")
-
-            # Resolve audio bytes
-            audio_bytes = None
-            if segment_id:
-                audio_bytes = segment_audio.get(segment_id)
-                if audio_bytes is None:
-                    for sid, data in segment_audio.items():
-                        if sid.startswith(segment_id) or segment_id.startswith(sid):
-                            audio_bytes = data
-                            break
-
-            if audio_bytes is None:
-                return {"success": False, "error": f"No audio found for segment {segment_id}"}
 
             try:
                 if self.mode == "melodic":
-                    audio_file = await vocal_processor.pitch_shift_words(
-                        audio_bytes=audio_bytes,
-                        words=words,
+                    audio_file = await vocal_processor.tts_melodic_vocal(
                         melody_design=self._design,
-                        key_signature=project.key_signature,
                         bpm=project.bpm,
                     )
                 else:
@@ -269,9 +268,7 @@ Then call render_vocal to produce the audio. Then call done.
                             (s.get("end_bar", 0) for s in instructions["sections"]),
                             default=4,
                         )
-                    audio_file = await vocal_processor.beat_snap_words(
-                        audio_bytes=audio_bytes,
-                        words=words,
+                    audio_file = await vocal_processor.tts_rhythmic_vocal(
                         rhythm_design=self._design,
                         bpm=project.bpm,
                         total_bars=total_bars,
