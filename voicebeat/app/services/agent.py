@@ -210,6 +210,9 @@ async def orchestrate(
     logger.info(f"AGENT: Speech instructions: {speech_instructions}")
     logger.info(f"AGENT: Audio data for {len(segment_audio_data)} segments")
 
+    if not settings.openai_api_key:
+        raise ValueError("OPENAI_API_KEY is not set! Add it to your .env file.")
+
     state = OrchestratorState(project)
 
     # Pre-analyze musical segments

@@ -56,6 +56,22 @@ async def root():
 @app.on_event("startup")
 async def startup_event():
     """Initialize on startup."""
+    # Validate required API keys
+    if not settings.smallest_api_key:
+        logging.error("=" * 60)
+        logging.error("MISSING API KEY: SMALLEST_API_KEY is not set!")
+        logging.error("Please add it to your .env file:")
+        logging.error("  SMALLEST_API_KEY=your_api_key_here")
+        logging.error("Get your key from https://smallest.ai")
+        logging.error("=" * 60)
+
+    if not settings.openai_api_key:
+        logging.error("=" * 60)
+        logging.error("MISSING API KEY: OPENAI_API_KEY is not set!")
+        logging.error("Please add it to your .env file:")
+        logging.error("  OPENAI_API_KEY=sk-xxxxx")
+        logging.error("=" * 60)
+
     # Ensure output directory exists
     settings.output_dir.mkdir(parents=True, exist_ok=True)
 

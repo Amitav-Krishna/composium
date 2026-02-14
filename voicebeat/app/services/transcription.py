@@ -58,6 +58,9 @@ async def transcribe_with_timestamps(
     logger.info(f"STT: Content-Type: {content_type}")
     logger.info(f"STT: Model: {settings.pulse_model}")
 
+    if not settings.smallest_api_key:
+        raise ValueError("SMALLEST_API_KEY is not set! Add it to your .env file.")
+
     params = {
         "model": settings.pulse_model,
         "language": language,

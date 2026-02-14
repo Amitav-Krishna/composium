@@ -290,6 +290,219 @@
         .upload-section label:hover {
             color: #e94560;
         }
+
+        /* Visualizer styles */
+        .visualizer-section {
+            display: none;
+            margin-top: 20px;
+        }
+
+        .visualizer-section.visible {
+            display: block;
+        }
+
+        .visualizer-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .visualizer-header h3 {
+            font-size: 1rem;
+            color: #e94560;
+        }
+
+        .tempo-display {
+            background: rgba(233, 69, 96, 0.2);
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 0.9rem;
+        }
+
+        .tempo-display strong {
+            color: #e94560;
+        }
+
+        .canvas-container {
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 8px;
+            padding: 10px;
+            margin-bottom: 15px;
+        }
+
+        .canvas-container canvas {
+            width: 100%;
+            height: 120px;
+            display: block;
+        }
+
+        .canvas-label {
+            font-size: 0.75rem;
+            color: #8892b0;
+            margin-bottom: 5px;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .legend {
+            display: flex;
+            gap: 15px;
+            font-size: 0.7rem;
+            color: #8892b0;
+            flex-wrap: wrap;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .legend-color {
+            width: 12px;
+            height: 12px;
+            border-radius: 2px;
+        }
+
+        .analysis-stats {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        .stat-box {
+            background: rgba(0, 0, 0, 0.2);
+            padding: 12px;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: #e94560;
+        }
+
+        .stat-label {
+            font-size: 0.7rem;
+            color: #8892b0;
+            margin-top: 4px;
+        }
+
+        /* Real-time visualizer styles */
+        .realtime-visualizer {
+            display: none;
+            margin-top: 20px;
+        }
+
+        .realtime-visualizer.visible {
+            display: block;
+        }
+
+        .realtime-visualizer canvas {
+            width: 100%;
+            height: 80px;
+            display: block;
+            border-radius: 8px;
+            background: rgba(0, 0, 0, 0.3);
+        }
+
+        #realtimeSpectrum {
+            height: 60px;
+        }
+
+        .realtime-label {
+            font-size: 0.75rem;
+            color: #8892b0;
+            margin-bottom: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .volume-meter {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .volume-bar {
+            width: 100px;
+            height: 8px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .volume-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #44ff88, #e94560);
+            width: 0%;
+            transition: width 0.05s ease;
+        }
+
+        /* Playback controls */
+        .playback-controls {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            margin-top: 15px;
+            padding: 15px;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 8px;
+        }
+
+        .play-btn {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            border: none;
+            background: linear-gradient(135deg, #e94560, #ff6b6b);
+            color: white;
+            font-size: 1.2rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: transform 0.2s;
+        }
+
+        .play-btn:hover {
+            transform: scale(1.1);
+        }
+
+        .playback-time {
+            flex: 1;
+        }
+
+        .time-display {
+            font-size: 0.8rem;
+            color: #8892b0;
+            margin-bottom: 5px;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 6px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 3px;
+            cursor: pointer;
+            position: relative;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #e94560, #ff6b6b);
+            border-radius: 3px;
+            width: 0%;
+            transition: width 0.1s linear;
+        }
+
+        .progress-bar:hover .progress-fill {
+            background: linear-gradient(90deg, #ff6b6b, #ffcc00);
+        }
     </style>
 </head>
 <body>
@@ -319,6 +532,26 @@
                     <input type="file" id="fileInput" accept="audio/*">
                 </label>
             </div>
+
+            <!-- Real-time visualizer (shown while recording) -->
+            <div class="realtime-visualizer" id="realtimeVisualizer">
+                <div class="realtime-label">
+                    <span>Live Audio Input</span>
+                    <div class="volume-meter">
+                        <span>Level:</span>
+                        <div class="volume-bar">
+                            <div class="volume-fill" id="volumeFill"></div>
+                        </div>
+                    </div>
+                </div>
+                <canvas id="realtimeWaveform"></canvas>
+                <div style="margin-top: 10px;">
+                    <div class="realtime-label">
+                        <span>Frequency Spectrum</span>
+                    </div>
+                    <canvas id="realtimeSpectrum"></canvas>
+                </div>
+            </div>
         </div>
 
         <div class="loading" id="loading">
@@ -328,6 +561,79 @@
         </div>
 
         <div class="error" id="error"></div>
+
+        <div class="card visualizer-section" id="visualizer">
+            <div class="visualizer-header">
+                <h3>Audio Analysis</h3>
+                <div class="tempo-display">
+                    Detected: <strong id="detectedTempo">-- BPM</strong>
+                </div>
+            </div>
+
+            <div class="canvas-container">
+                <div class="canvas-label">
+                    <span>Waveform + Beats</span>
+                    <div class="legend">
+                        <div class="legend-item">
+                            <div class="legend-color" style="background: #4a9eff;"></div>
+                            <span>Waveform</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-color" style="background: #e94560;"></div>
+                            <span>Beats</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-color" style="background: #44ff88;"></div>
+                            <span>Onsets</span>
+                        </div>
+                    </div>
+                </div>
+                <canvas id="waveformCanvas"></canvas>
+            </div>
+
+            <div class="canvas-container">
+                <div class="canvas-label">
+                    <span>Onset Strength (Beat Detection Signal)</span>
+                </div>
+                <canvas id="onsetCanvas"></canvas>
+            </div>
+
+            <div class="canvas-container">
+                <div class="canvas-label">
+                    <span>Pitch Contour (Melody Detection)</span>
+                </div>
+                <canvas id="pitchCanvas"></canvas>
+            </div>
+
+            <div class="analysis-stats">
+                <div class="stat-box">
+                    <div class="stat-value" id="statOnsets">--</div>
+                    <div class="stat-label">Onsets Detected</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-value" id="statBeats">--</div>
+                    <div class="stat-label">Beats Tracked</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-value" id="statDuration">--</div>
+                    <div class="stat-label">Duration (sec)</div>
+                </div>
+            </div>
+
+            <!-- Playback controls with synced visualization -->
+            <div class="playback-controls">
+                <button class="play-btn" id="vizPlayBtn">&#9658;</button>
+                <div class="playback-time">
+                    <div class="time-display">
+                        <span id="vizCurrentTime">0:00</span> / <span id="vizTotalTime">0:00</span>
+                    </div>
+                    <div class="progress-bar" id="vizProgressBar">
+                        <div class="progress-fill" id="vizProgressFill"></div>
+                    </div>
+                </div>
+            </div>
+            <audio id="vizAudioPlayer" style="display: none;"></audio>
+        </div>
 
         <div class="card result-section" id="result">
             <div class="result-header">
@@ -360,11 +666,43 @@
         const newBtn = document.getElementById('newBtn');
         const fileInput = document.getElementById('fileInput');
 
+        // Visualizer elements
+        const visualizer = document.getElementById('visualizer');
+        const waveformCanvas = document.getElementById('waveformCanvas');
+        const onsetCanvas = document.getElementById('onsetCanvas');
+        const pitchCanvas = document.getElementById('pitchCanvas');
+        const detectedTempo = document.getElementById('detectedTempo');
+        const statOnsets = document.getElementById('statOnsets');
+        const statBeats = document.getElementById('statBeats');
+        const statDuration = document.getElementById('statDuration');
+
+        // Real-time visualizer elements
+        const realtimeVisualizer = document.getElementById('realtimeVisualizer');
+        const realtimeWaveform = document.getElementById('realtimeWaveform');
+        const realtimeSpectrum = document.getElementById('realtimeSpectrum');
+        const volumeFill = document.getElementById('volumeFill');
+
+        // Playback elements
+        const vizPlayBtn = document.getElementById('vizPlayBtn');
+        const vizCurrentTime = document.getElementById('vizCurrentTime');
+        const vizTotalTime = document.getElementById('vizTotalTime');
+        const vizProgressBar = document.getElementById('vizProgressBar');
+        const vizProgressFill = document.getElementById('vizProgressFill');
+        const vizAudioPlayer = document.getElementById('vizAudioPlayer');
+
         let mediaRecorder = null;
         let audioChunks = [];
         let isRecording = false;
         let timerInterval = null;
         let seconds = 0;
+
+        // Real-time audio analysis
+        let audioContext = null;
+        let analyser = null;
+        let realtimeAnimationId = null;
+        let currentAudioBlob = null;
+        let currentVizData = null;
+        let playheadAnimationId = null;
 
         const API_BASE = '';
 
@@ -397,11 +735,600 @@
             error.classList.remove('visible');
         }
 
+        // ============================================
+        // REAL-TIME VISUALIZATION (during recording)
+        // ============================================
+
+        function startRealtimeVisualization(stream) {
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            analyser = audioContext.createAnalyser();
+            analyser.fftSize = 2048;
+
+            const source = audioContext.createMediaStreamSource(stream);
+            source.connect(analyser);
+
+            realtimeVisualizer.classList.add('visible');
+            drawRealtimeVisualization();
+        }
+
+        function stopRealtimeVisualization() {
+            if (realtimeAnimationId) {
+                cancelAnimationFrame(realtimeAnimationId);
+                realtimeAnimationId = null;
+            }
+            if (audioContext) {
+                audioContext.close();
+                audioContext = null;
+            }
+            realtimeVisualizer.classList.remove('visible');
+        }
+
+        function drawRealtimeVisualization() {
+            if (!analyser) return;
+
+            realtimeAnimationId = requestAnimationFrame(drawRealtimeVisualization);
+
+            // Get waveform data
+            const bufferLength = analyser.frequencyBinCount;
+            const dataArray = new Uint8Array(bufferLength);
+            analyser.getByteTimeDomainData(dataArray);
+
+            // Get frequency data
+            const freqData = new Uint8Array(bufferLength);
+            analyser.getByteFrequencyData(freqData);
+
+            // Calculate volume level
+            let sum = 0;
+            for (let i = 0; i < bufferLength; i++) {
+                const val = (dataArray[i] - 128) / 128;
+                sum += val * val;
+            }
+            const rms = Math.sqrt(sum / bufferLength);
+            const volumePercent = Math.min(100, rms * 300);
+            volumeFill.style.width = volumePercent + '%';
+
+            // Draw waveform
+            drawRealtimeWaveform(dataArray, bufferLength);
+
+            // Draw spectrum
+            drawRealtimeSpectrum(freqData, bufferLength);
+        }
+
+        function drawRealtimeWaveform(dataArray, bufferLength) {
+            const canvas = realtimeWaveform;
+            const ctx = canvas.getContext('2d');
+            const dpr = window.devicePixelRatio || 1;
+
+            const rect = canvas.getBoundingClientRect();
+            canvas.width = rect.width * dpr;
+            canvas.height = rect.height * dpr;
+            ctx.scale(dpr, dpr);
+
+            const width = rect.width;
+            const height = rect.height;
+
+            // Clear with dark background
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+            ctx.fillRect(0, 0, width, height);
+
+            // Draw center line
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(0, height / 2);
+            ctx.lineTo(width, height / 2);
+            ctx.stroke();
+
+            // Draw waveform
+            ctx.strokeStyle = '#4a9eff';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+
+            const sliceWidth = width / bufferLength;
+            let x = 0;
+
+            for (let i = 0; i < bufferLength; i++) {
+                const v = dataArray[i] / 128.0;
+                const y = (v * height) / 2;
+
+                if (i === 0) {
+                    ctx.moveTo(x, y);
+                } else {
+                    ctx.lineTo(x, y);
+                }
+                x += sliceWidth;
+            }
+
+            ctx.stroke();
+
+            // Add glow effect for loud parts
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = '#4a9eff';
+            ctx.stroke();
+            ctx.shadowBlur = 0;
+        }
+
+        function drawRealtimeSpectrum(freqData, bufferLength) {
+            const canvas = realtimeSpectrum;
+            const ctx = canvas.getContext('2d');
+            const dpr = window.devicePixelRatio || 1;
+
+            const rect = canvas.getBoundingClientRect();
+            canvas.width = rect.width * dpr;
+            canvas.height = rect.height * dpr;
+            ctx.scale(dpr, dpr);
+
+            const width = rect.width;
+            const height = rect.height;
+
+            // Clear
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+            ctx.fillRect(0, 0, width, height);
+
+            // Draw frequency bars (only show lower frequencies which are more relevant)
+            const barsToShow = Math.min(128, bufferLength / 2);
+            const barWidth = width / barsToShow;
+
+            for (let i = 0; i < barsToShow; i++) {
+                const barHeight = (freqData[i] / 255) * height;
+
+                // Color gradient based on frequency
+                const hue = (i / barsToShow) * 60 + 330; // Pink to red to orange
+                ctx.fillStyle = `hsl(${hue}, 80%, 55%)`;
+
+                ctx.fillRect(
+                    i * barWidth,
+                    height - barHeight,
+                    barWidth - 1,
+                    barHeight
+                );
+            }
+        }
+
+        // ============================================
+        // PLAYBACK WITH SYNCED VISUALIZATION
+        // ============================================
+
+        function setupPlayback(audioBlob, vizData) {
+            currentAudioBlob = audioBlob;
+            currentVizData = vizData;
+
+            // Create object URL for playback
+            const audioUrl = URL.createObjectURL(audioBlob);
+            vizAudioPlayer.src = audioUrl;
+
+            vizTotalTime.textContent = formatTime(Math.floor(vizData.duration_seconds));
+
+            // Setup event listeners
+            vizAudioPlayer.onloadedmetadata = () => {
+                vizTotalTime.textContent = formatTime(Math.floor(vizAudioPlayer.duration));
+            };
+
+            vizAudioPlayer.ontimeupdate = () => {
+                updatePlayhead();
+            };
+
+            vizAudioPlayer.onended = () => {
+                vizPlayBtn.innerHTML = '&#9658;';
+                cancelAnimationFrame(playheadAnimationId);
+                vizProgressFill.style.width = '0%';
+                vizCurrentTime.textContent = '0:00';
+                // Redraw without playhead
+                if (currentVizData) {
+                    renderWaveform(waveformCanvas, currentVizData, -1);
+                    renderOnsetEnvelope(onsetCanvas, currentVizData, -1);
+                    renderPitchContour(pitchCanvas, currentVizData, -1);
+                }
+            };
+        }
+
+        function updatePlayhead() {
+            if (!vizAudioPlayer.duration) return;
+
+            const progress = vizAudioPlayer.currentTime / vizAudioPlayer.duration;
+            vizProgressFill.style.width = (progress * 100) + '%';
+            vizCurrentTime.textContent = formatTime(Math.floor(vizAudioPlayer.currentTime));
+
+            // Redraw visualizations with playhead
+            if (currentVizData) {
+                renderWaveform(waveformCanvas, currentVizData, progress);
+                renderOnsetEnvelope(onsetCanvas, currentVizData, progress);
+                renderPitchContour(pitchCanvas, currentVizData, progress);
+            }
+        }
+
+        function togglePlayback() {
+            if (vizAudioPlayer.paused) {
+                vizAudioPlayer.play();
+                vizPlayBtn.innerHTML = '&#10074;&#10074;';
+            } else {
+                vizAudioPlayer.pause();
+                vizPlayBtn.innerHTML = '&#9658;';
+            }
+        }
+
+        // Progress bar click to seek
+        vizProgressBar.addEventListener('click', (e) => {
+            if (!vizAudioPlayer.duration) return;
+
+            const rect = vizProgressBar.getBoundingClientRect();
+            const clickX = e.clientX - rect.left;
+            const progress = clickX / rect.width;
+
+            vizAudioPlayer.currentTime = progress * vizAudioPlayer.duration;
+            updatePlayhead();
+        });
+
+        vizPlayBtn.addEventListener('click', togglePlayback);
+
+        // ============================================
+        // POST-RECORDING VISUALIZER RENDERING
+        // ============================================
+
+        // Visualizer rendering functions (with optional playhead)
+        function renderWaveform(canvas, vizData, playheadProgress = -1) {
+            const ctx = canvas.getContext('2d');
+            const dpr = window.devicePixelRatio || 1;
+
+            // Set canvas size
+            const rect = canvas.getBoundingClientRect();
+            canvas.width = rect.width * dpr;
+            canvas.height = rect.height * dpr;
+            ctx.scale(dpr, dpr);
+
+            const width = rect.width;
+            const height = rect.height;
+
+            // Clear
+            ctx.fillStyle = 'rgba(0, 0, 0, 0)';
+            ctx.fillRect(0, 0, width, height);
+
+            const duration = vizData.duration_seconds;
+            const waveform = vizData.waveform;
+            const waveformTimes = vizData.waveform_times;
+
+            // Draw waveform (played portion in brighter color)
+            const playheadX = playheadProgress >= 0 ? playheadProgress * width : -1;
+
+            const centerY = height / 2;
+            const scale = height / 2 * 0.8;
+
+            // Draw played portion
+            if (playheadX > 0) {
+                ctx.strokeStyle = '#7fbfff';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                for (let i = 0; i < waveform.length; i++) {
+                    const x = (waveformTimes[i] / duration) * width;
+                    if (x > playheadX) break;
+                    const y = centerY - waveform[i] * scale;
+                    if (i === 0) ctx.moveTo(x, y);
+                    else ctx.lineTo(x, y);
+                }
+                ctx.stroke();
+            }
+
+            // Draw unplayed portion
+            ctx.strokeStyle = playheadX > 0 ? 'rgba(74, 158, 255, 0.4)' : '#4a9eff';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            let started = false;
+            for (let i = 0; i < waveform.length; i++) {
+                const x = (waveformTimes[i] / duration) * width;
+                if (playheadX > 0 && x <= playheadX) continue;
+                const y = centerY - waveform[i] * scale;
+                if (!started) { ctx.moveTo(x, y); started = true; }
+                else ctx.lineTo(x, y);
+            }
+            ctx.stroke();
+
+            // Draw beat markers (red vertical lines)
+            vizData.beat_times.forEach(beatTime => {
+                const x = (beatTime / duration) * width;
+                const isPast = playheadX > 0 && x < playheadX;
+                ctx.strokeStyle = isPast ? '#ff8a9e' : '#e94560';
+                ctx.lineWidth = isPast ? 1 : 2;
+                ctx.beginPath();
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, height);
+                ctx.stroke();
+            });
+
+            // Draw onset markers (green triangles at top)
+            vizData.onset_times.forEach((onsetTime, i) => {
+                const x = (onsetTime / duration) * width;
+                const strength = vizData.onset_strengths[i] || 0.5;
+                const isPast = playheadX > 0 && x < playheadX;
+                ctx.fillStyle = isPast ? '#88ffbb' : '#44ff88';
+
+                ctx.beginPath();
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x - 4, 10 + strength * 10);
+                ctx.lineTo(x + 4, 10 + strength * 10);
+                ctx.closePath();
+                ctx.fill();
+            });
+
+            // Draw center line
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(0, centerY);
+            ctx.lineTo(width, centerY);
+            ctx.stroke();
+
+            // Draw playhead
+            if (playheadX > 0) {
+                ctx.strokeStyle = '#ffffff';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(playheadX, 0);
+                ctx.lineTo(playheadX, height);
+                ctx.stroke();
+
+                // Playhead glow
+                ctx.shadowBlur = 8;
+                ctx.shadowColor = '#ffffff';
+                ctx.stroke();
+                ctx.shadowBlur = 0;
+            }
+        }
+
+        function renderOnsetEnvelope(canvas, vizData, playheadProgress = -1) {
+            const ctx = canvas.getContext('2d');
+            const dpr = window.devicePixelRatio || 1;
+
+            const rect = canvas.getBoundingClientRect();
+            canvas.width = rect.width * dpr;
+            canvas.height = rect.height * dpr;
+            ctx.scale(dpr, dpr);
+
+            const width = rect.width;
+            const height = rect.height;
+
+            ctx.fillStyle = 'rgba(0, 0, 0, 0)';
+            ctx.fillRect(0, 0, width, height);
+
+            const duration = vizData.duration_seconds;
+            const envelope = vizData.onset_envelope;
+            const envTimes = vizData.onset_envelope_times;
+            const playheadX = playheadProgress >= 0 ? playheadProgress * width : -1;
+
+            // Draw onset envelope as filled area
+            ctx.fillStyle = 'rgba(233, 69, 96, 0.3)';
+            ctx.strokeStyle = '#e94560';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(0, height);
+
+            for (let i = 0; i < envelope.length; i++) {
+                const x = (envTimes[i] / duration) * width;
+                const y = height - envelope[i] * height * 0.9;
+                ctx.lineTo(x, y);
+            }
+
+            ctx.lineTo(width, height);
+            ctx.closePath();
+            ctx.fill();
+
+            // Draw played portion with brighter fill
+            if (playheadX > 0) {
+                ctx.fillStyle = 'rgba(233, 69, 96, 0.6)';
+                ctx.beginPath();
+                ctx.moveTo(0, height);
+                for (let i = 0; i < envelope.length; i++) {
+                    const x = (envTimes[i] / duration) * width;
+                    if (x > playheadX) {
+                        const y = height - envelope[i] * height * 0.9;
+                        ctx.lineTo(playheadX, y);
+                        break;
+                    }
+                    const y = height - envelope[i] * height * 0.9;
+                    ctx.lineTo(x, y);
+                }
+                ctx.lineTo(playheadX, height);
+                ctx.closePath();
+                ctx.fill();
+            }
+
+            // Draw line on top
+            ctx.beginPath();
+            for (let i = 0; i < envelope.length; i++) {
+                const x = (envTimes[i] / duration) * width;
+                const y = height - envelope[i] * height * 0.9;
+                if (i === 0) {
+                    ctx.moveTo(x, y);
+                } else {
+                    ctx.lineTo(x, y);
+                }
+            }
+            ctx.stroke();
+
+            // Draw beat markers
+            ctx.lineWidth = 1;
+            ctx.setLineDash([3, 3]);
+            vizData.beat_times.forEach(beatTime => {
+                const x = (beatTime / duration) * width;
+                const isPast = playheadX > 0 && x < playheadX;
+                ctx.strokeStyle = isPast ? 'rgba(127, 191, 255, 0.9)' : 'rgba(74, 158, 255, 0.7)';
+                ctx.beginPath();
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, height);
+                ctx.stroke();
+            });
+            ctx.setLineDash([]);
+
+            // Draw playhead
+            if (playheadX > 0) {
+                ctx.strokeStyle = '#ffffff';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(playheadX, 0);
+                ctx.lineTo(playheadX, height);
+                ctx.stroke();
+            }
+        }
+
+        function renderPitchContour(canvas, vizData, playheadProgress = -1) {
+            const ctx = canvas.getContext('2d');
+            const dpr = window.devicePixelRatio || 1;
+
+            const rect = canvas.getBoundingClientRect();
+            canvas.width = rect.width * dpr;
+            canvas.height = rect.height * dpr;
+            ctx.scale(dpr, dpr);
+
+            const width = rect.width;
+            const height = rect.height;
+
+            ctx.fillStyle = 'rgba(0, 0, 0, 0)';
+            ctx.fillRect(0, 0, width, height);
+
+            if (!vizData.pitch_frequencies || !vizData.pitch_times) {
+                ctx.fillStyle = '#8892b0';
+                ctx.font = '14px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText('No pitch data available', width / 2, height / 2);
+                return;
+            }
+
+            const duration = vizData.duration_seconds;
+            const pitchTimes = vizData.pitch_times;
+            const pitchFreqs = vizData.pitch_frequencies;
+            const playheadX = playheadProgress >= 0 ? playheadProgress * width : -1;
+
+            // Find frequency range (ignore nulls)
+            const validFreqs = pitchFreqs.filter(f => f !== null && f > 0);
+            if (validFreqs.length === 0) {
+                ctx.fillStyle = '#8892b0';
+                ctx.font = '14px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText('No pitched content detected', width / 2, height / 2);
+                return;
+            }
+
+            const minFreq = Math.min(...validFreqs);
+            const maxFreq = Math.max(...validFreqs);
+            const freqRange = maxFreq - minFreq || 100;
+
+            // Draw played portion of pitch contour
+            if (playheadX > 0) {
+                ctx.strokeStyle = '#ffee66';
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                let started = false;
+                for (let i = 0; i < pitchFreqs.length; i++) {
+                    const freq = pitchFreqs[i];
+                    const x = (pitchTimes[i] / duration) * width;
+                    if (x > playheadX) break;
+                    if (freq === null || freq <= 0) { started = false; continue; }
+                    const y = height - ((freq - minFreq) / freqRange) * height * 0.8 - height * 0.1;
+                    if (!started) { ctx.moveTo(x, y); started = true; }
+                    else ctx.lineTo(x, y);
+                }
+                ctx.stroke();
+            }
+
+            // Draw unplayed portion of pitch contour
+            ctx.strokeStyle = playheadX > 0 ? 'rgba(255, 204, 0, 0.4)' : '#ffcc00';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            let started = false;
+            for (let i = 0; i < pitchFreqs.length; i++) {
+                const freq = pitchFreqs[i];
+                if (freq === null || freq <= 0) { started = false; continue; }
+                const x = (pitchTimes[i] / duration) * width;
+                if (playheadX > 0 && x <= playheadX) continue;
+                const y = height - ((freq - minFreq) / freqRange) * height * 0.8 - height * 0.1;
+                if (!started) { ctx.moveTo(x, y); started = true; }
+                else ctx.lineTo(x, y);
+            }
+            ctx.stroke();
+
+            // Draw dots at each pitch point
+            for (let i = 0; i < pitchFreqs.length; i++) {
+                const freq = pitchFreqs[i];
+                if (freq === null || freq <= 0) continue;
+
+                const x = (pitchTimes[i] / duration) * width;
+                const y = height - ((freq - minFreq) / freqRange) * height * 0.8 - height * 0.1;
+                const isPast = playheadX > 0 && x < playheadX;
+
+                ctx.fillStyle = isPast ? '#ffee66' : '#ffcc00';
+                ctx.beginPath();
+                ctx.arc(x, y, isPast ? 3 : 2, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            // Draw frequency labels
+            ctx.fillStyle = '#8892b0';
+            ctx.font = '10px sans-serif';
+            ctx.textAlign = 'left';
+            ctx.fillText(`${Math.round(maxFreq)} Hz`, 5, 15);
+            ctx.fillText(`${Math.round(minFreq)} Hz`, 5, height - 5);
+
+            // Draw playhead
+            if (playheadX > 0) {
+                ctx.strokeStyle = '#ffffff';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(playheadX, 0);
+                ctx.lineTo(playheadX, height);
+                ctx.stroke();
+            }
+        }
+
+        async function fetchVisualization(audioBlob) {
+            const formData = new FormData();
+            formData.append('audio', audioBlob, 'recording.webm');
+
+            try {
+                const response = await fetch(`${API_BASE}/api/v1/visualize`, {
+                    method: 'POST',
+                    body: formData,
+                });
+
+                if (!response.ok) {
+                    console.error('Visualization failed');
+                    return null;
+                }
+
+                return await response.json();
+            } catch (err) {
+                console.error('Visualization error:', err);
+                return null;
+            }
+        }
+
+        function displayVisualization(vizData) {
+            if (!vizData) {
+                visualizer.classList.remove('visible');
+                return;
+            }
+
+            currentVizData = vizData;
+            visualizer.classList.add('visible');
+
+            // Update stats
+            detectedTempo.textContent = `${Math.round(vizData.tempo_bpm)} BPM`;
+            statOnsets.textContent = vizData.onset_times.length;
+            statBeats.textContent = vizData.beat_times.length;
+            statDuration.textContent = vizData.duration_seconds.toFixed(2);
+
+            // Render canvases (without playhead initially)
+            renderWaveform(waveformCanvas, vizData, -1);
+            renderOnsetEnvelope(onsetCanvas, vizData, -1);
+            renderPitchContour(pitchCanvas, vizData, -1);
+        }
+
         async function startRecording() {
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
                 mediaRecorder = new MediaRecorder(stream);
                 audioChunks = [];
+
+                // Start real-time visualization
+                startRealtimeVisualization(stream);
 
                 mediaRecorder.ondataavailable = (e) => {
                     audioChunks.push(e.data);
@@ -410,6 +1337,7 @@
                 mediaRecorder.onstop = async () => {
                     const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
                     stream.getTracks().forEach(track => track.stop());
+                    stopRealtimeVisualization();
                     await processAudio(audioBlob);
                 };
 
@@ -433,20 +1361,40 @@
                 recordBtn.classList.remove('recording');
                 recordBtnText.textContent = 'Record';
                 stopTimer();
+                stopRealtimeVisualization();
             }
         }
 
         async function processAudio(audioBlob) {
             loading.classList.add('visible');
             result.classList.remove('visible');
-            status.textContent = 'Processing...';
+            visualizer.classList.remove('visible');
+            status.textContent = 'Analyzing audio...';
             recordBtn.disabled = true;
+
+            // Store the blob for playback
+            currentAudioBlob = audioBlob;
+
+            // First, get visualization data (runs in parallel conceptually)
+            const vizPromise = fetchVisualization(audioBlob);
 
             const formData = new FormData();
             formData.append('audio', audioBlob, 'recording.webm');
             formData.append('project_name', 'My Track');
 
             try {
+                // Wait for visualization first for debugging
+                status.textContent = 'Analyzing waveform and beats...';
+                const vizData = await vizPromise;
+                displayVisualization(vizData);
+
+                // Setup playback with synced visualization
+                if (vizData) {
+                    setupPlayback(audioBlob, vizData);
+                }
+
+                // Then process the audio
+                status.textContent = 'Processing audio...';
                 const response = await fetch(`${API_BASE}/api/v1/process`, {
                     method: 'POST',
                     body: formData,
@@ -536,7 +1484,15 @@
 
         newBtn.addEventListener('click', () => {
             result.classList.remove('visible');
+            visualizer.classList.remove('visible');
             audioPlayer.src = '';
+            vizAudioPlayer.src = '';
+            vizAudioPlayer.pause();
+            vizPlayBtn.innerHTML = '&#9658;';
+            vizProgressFill.style.width = '0%';
+            vizCurrentTime.textContent = '0:00';
+            currentAudioBlob = null;
+            currentVizData = null;
             timer.textContent = '0:00';
             status.textContent = 'Click to start recording';
         });

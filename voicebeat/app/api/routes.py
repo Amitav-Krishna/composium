@@ -39,6 +39,7 @@ from app.services import (
     track_assembler,
     segmenter,
     agent,
+    visualizer,
 )
 from app.utils.audio import get_content_type, validate_audio_file, read_upload_file
 
@@ -167,6 +168,50 @@ async def process_recording(
         project=project,
         feedback_text=summary,
     )
+
+
+@router.post("/api/v1/visualize")
+async def visualize_audio(audio: UploadFile = File(...)):
+    """
+    Analyze audio and return visualization data.
+
+    Returns waveform, onset detection, beat tracking, and pitch analysis
+    for debugging and visual feedback.
+    """
+    logger.info("=" * 80)
+    logger.info("VISUALIZE: New audio received for visualization")
+    logger.info(f"VISUALIZE: Filename: {audio.filename}")
+
+    if not await validate_audio_file(audio):
+        logger.error("VISUALIZE: Invalid audio file format")
+        raise HTTPException(status_code=400, detail="Invalid audio file format")
+
+    audio_bytes = await read_upload_file(audio)
+    logger.info(f"VISUALIZE: Read {len(audio_bytes)} bytes")
+
+    try:
+        viz_data = await visualizer.analyze_for_visualization(audio_bytes)
+
+        return {
+            "waveform": viz_data.waveform,
+            "waveform_times": viz_data.waveform_times,
+            "duration_seconds": viz_data.duration_seconds,
+            "sample_rate": viz_data.sample_rate,
+            "onset_times": viz_data.onset_times,
+            "onset_strengths": viz_data.onset_strengths,
+            "beat_times": viz_data.beat_times,
+            "tempo_bpm": viz_data.tempo_bpm,
+            "onset_envelope": viz_data.onset_envelope,
+            "onset_envelope_times": viz_data.onset_envelope_times,
+            "pitch_times": viz_data.pitch_times,
+            "pitch_frequencies": viz_data.pitch_frequencies,
+            "pitch_confidences": viz_data.pitch_confidences,
+            "rms_values": viz_data.rms_values,
+            "rms_times": viz_data.rms_times,
+        }
+    except Exception as e:
+        logger.error(f"VISUALIZE: Analysis failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Visualization failed: {str(e)}")
 
 
 @router.post("/api/v1/describe", response_model=DescribeResponse)
