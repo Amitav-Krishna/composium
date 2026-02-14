@@ -1,9 +1,21 @@
+"""
+API Routes for VoiceBeat
+
+The main endpoint is /api/v1/process which accepts a single recording
+containing both speech (instructions) and music (humming/beatboxing).
+"""
+
 import uuid
+import logging
 from pathlib import Path
+from datetime import datetime
 from fastapi import APIRouter, File, UploadFile, HTTPException
 from fastapi.responses import FileResponse, Response
 import sys
-sys.path.insert(0, str(__file__).rsplit("/", 4)[0])
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+
+logger = logging.getLogger(__name__)
+
 from config.settings import settings
 from app.models.schemas import (
     DescribeResponse,
@@ -14,8 +26,21 @@ from app.models.schemas import (
     SpeakRequest,
     HealthResponse,
     SampleCatalogResponse,
+    ProcessResponse,
+    SegmentType,
+    MusicDescription,
 )
-from app.services import transcription, tts, description_parser, rhythm_analyzer, sample_lookup, track_assembler
+from app.services import (
+    transcription,
+    tts,
+    description_parser,
+    rhythm_analyzer,
+    sample_lookup,
+    track_assembler,
+    segmenter,
+    agent,
+    visualizer,
+)
 from app.utils.audio import get_content_type, validate_audio_file, read_upload_file
 
 
@@ -31,13 +56,171 @@ async def health_check():
     return HealthResponse(status="ok")
 
 
+@router.post("/api/v1/process", response_model=ProcessResponse)
+async def process_recording(
+    audio: UploadFile = File(...),
+    project_name: str = "New Project",
+):
+    """
+    Main endpoint: Process a single audio recording.
+
+    Accepts a recording where the user both talks (instructions) and
+    hums/beatboxes (musical content) in one take.
+
+    Pipeline:
+    1. Segment audio into speech vs music regions using STT timestamps
+    2. Transcribe speech, analyze musical segments
+    3. Use AI agent to orchestrate: interpret instructions, assign instruments
+    4. Render layers and combine into final output
+
+    Returns the project with all layers and feedback text for TTS.
+    """
+    logger.info("=" * 80)
+    logger.info("PROCESS: New recording received")
+    logger.info(f"PROCESS: Filename: {audio.filename}")
+    logger.info(f"PROCESS: Content-Type header: {audio.content_type}")
+    logger.info(f"PROCESS: Project name: {project_name}")
+
+    if not await validate_audio_file(audio):
+        logger.error("PROCESS: Invalid audio file format")
+        raise HTTPException(status_code=400, detail="Invalid audio file format")
+
+    audio_bytes = await read_upload_file(audio)
+    content_type = get_content_type(audio.filename or "audio.wav")
+    logger.info(f"PROCESS: Read {len(audio_bytes)} bytes, determined content_type={content_type}")
+
+    # Step 1: Segment the recording
+    logger.info("PROCESS: Step 1 - Segmenting recording...")
+    segments = await segmenter.segment_recording(audio_bytes, content_type)
+
+    if not segments:
+        logger.error("PROCESS: No segments detected")
+        raise HTTPException(status_code=400, detail="No segments detected in audio")
+
+    logger.info(f"PROCESS: Found {len(segments)} segments")
+
+    # Step 2: Extract audio for each segment
+    logger.info("PROCESS: Step 2 - Extracting audio for each segment...")
+    segment_audio_data: dict[str, bytes] = {}
+    for seg in segments:
+        if seg.type != SegmentType.SPEECH:
+            seg_audio_path = await segmenter.extract_segment_audio(audio_bytes, seg)
+            with open(seg_audio_path, "rb") as f:
+                segment_audio_data[seg.id] = f.read()
+            seg.audio_file = seg_audio_path
+            logger.info(f"PROCESS: Extracted segment {seg.id[:8]} -> {seg_audio_path} ({len(segment_audio_data[seg.id])} bytes)")
+
+    # Step 3: Get speech transcripts for instructions
+    logger.info("PROCESS: Step 3 - Extracting speech transcripts...")
+    speech_transcripts = [
+        seg.transcript for seg in segments
+        if seg.type == SegmentType.SPEECH and seg.transcript
+    ]
+    logger.info(f"PROCESS: Found {len(speech_transcripts)} speech transcripts: {speech_transcripts}")
+
+    # Create project
+    project_id = str(uuid.uuid4())
+    project = Project(
+        id=project_id,
+        name=project_name,
+        segments=segments,
+    )
+    logger.info(f"PROCESS: Created project {project_id}")
+
+    # Step 4: If we have speech instructions, parse them
+    if speech_transcripts:
+        logger.info("PROCESS: Step 4 - Parsing speech instructions...")
+        description = await description_parser.extract_instructions(speech_transcripts)
+        project.description = description
+        if description.tempo_bpm:
+            project.bpm = description.tempo_bpm
+        logger.info(f"PROCESS: Parsed description: genre={description.genre}, tempo={description.tempo_bpm}, instruments={description.instruments}")
+    else:
+        logger.info("PROCESS: Step 4 - No speech instructions to parse")
+
+    # Step 5: Run the AI agent to orchestrate
+    logger.info("PROCESS: Step 5 - Running AI agent...")
+    project, summary = await agent.orchestrate(
+        segments=segments,
+        speech_instructions=speech_transcripts,
+        segment_audio_data=segment_audio_data,
+        project=project,
+    )
+    logger.info(f"PROCESS: Agent summary: {summary}")
+    logger.info(f"PROCESS: Project now has {len(project.layers)} layers")
+
+    # Step 6: Mix if we have layers
+    if project.layers:
+        logger.info("PROCESS: Step 6 - Mixing layers...")
+        try:
+            project.mixed_file = track_assembler.mix_project(project)
+            logger.info(f"PROCESS: Mixed file: {project.mixed_file}")
+        except ValueError as e:
+            logger.warning(f"PROCESS: Mix failed: {e}")
+
+    # Save project
+    projects[project_id] = project
+
+    logger.info("PROCESS: Complete!")
+    logger.info("=" * 80)
+
+    return ProcessResponse(
+        project=project,
+        feedback_text=summary,
+    )
+
+
+@router.post("/api/v1/visualize")
+async def visualize_audio(audio: UploadFile = File(...)):
+    """
+    Analyze audio and return visualization data.
+
+    Returns waveform, onset detection, beat tracking, and pitch analysis
+    for debugging and visual feedback.
+    """
+    logger.info("=" * 80)
+    logger.info("VISUALIZE: New audio received for visualization")
+    logger.info(f"VISUALIZE: Filename: {audio.filename}")
+
+    if not await validate_audio_file(audio):
+        logger.error("VISUALIZE: Invalid audio file format")
+        raise HTTPException(status_code=400, detail="Invalid audio file format")
+
+    audio_bytes = await read_upload_file(audio)
+    logger.info(f"VISUALIZE: Read {len(audio_bytes)} bytes")
+
+    try:
+        viz_data = await visualizer.analyze_for_visualization(audio_bytes)
+
+        return {
+            "waveform": viz_data.waveform,
+            "waveform_times": viz_data.waveform_times,
+            "duration_seconds": viz_data.duration_seconds,
+            "sample_rate": viz_data.sample_rate,
+            "onset_times": viz_data.onset_times,
+            "onset_strengths": viz_data.onset_strengths,
+            "beat_times": viz_data.beat_times,
+            "tempo_bpm": viz_data.tempo_bpm,
+            "onset_envelope": viz_data.onset_envelope,
+            "onset_envelope_times": viz_data.onset_envelope_times,
+            "pitch_times": viz_data.pitch_times,
+            "pitch_frequencies": viz_data.pitch_frequencies,
+            "pitch_confidences": viz_data.pitch_confidences,
+            "rms_values": viz_data.rms_values,
+            "rms_times": viz_data.rms_times,
+        }
+    except Exception as e:
+        logger.error(f"VISUALIZE: Analysis failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Visualization failed: {str(e)}")
+
+
 @router.post("/api/v1/describe", response_model=DescribeResponse)
 async def describe_audio(audio: UploadFile = File(...)):
     """
-    Transcribe audio and parse music description.
+    Simple mode: Transcribe audio and parse music description.
 
-    Accepts an audio file, transcribes it using Pulse STT,
-    then parses the transcript using Claude to extract structured metadata.
+    Accepts an audio file of spoken description only,
+    transcribes it and extracts structured metadata.
     """
     if not await validate_audio_file(audio):
         raise HTTPException(status_code=400, detail="Invalid audio file format")
@@ -58,12 +241,12 @@ async def describe_audio(audio: UploadFile = File(...)):
 
 
 @router.post("/api/v1/rhythm", response_model=RhythmResponse)
-async def analyze_rhythm(
+async def analyze_rhythm_endpoint(
     audio: UploadFile = File(...),
     target_bpm: int | None = None,
 ):
     """
-    Analyze rhythm from audio.
+    Simple mode: Analyze rhythm from audio.
 
     Accepts an audio file (humming/beatboxing) and detects onsets,
     quantizing them to a 16th-note grid.
@@ -80,13 +263,12 @@ async def analyze_rhythm(
 
 @router.post("/api/v1/projects", response_model=Project)
 async def create_project(request: ProjectCreateRequest):
-    """Create a new project."""
+    """Create a new empty project."""
     project_id = str(uuid.uuid4())
     project = Project(
         id=project_id,
         name=request.name,
         bpm=request.bpm,
-        layers=[],
     )
     projects[project_id] = project
     return project
@@ -103,79 +285,80 @@ async def get_project(project_id: str):
 @router.post("/api/v1/projects/{project_id}/layers", response_model=Layer)
 async def add_layer(
     project_id: str,
-    description_audio: UploadFile = File(...),
-    rhythm_audio: UploadFile = File(...),
+    audio: UploadFile = File(...),
 ):
     """
-    Add a new layer to a project.
+    Add a new layer to a project from a single recording.
 
-    Accepts two audio files:
-    - description_audio: Voice describing what kind of music
-    - rhythm_audio: Humming/beatboxing the rhythm
-
-    Runs the full pipeline: transcribe -> parse -> detect rhythm -> lookup samples -> render
+    The recording is segmented and processed through the AI agent.
     """
     if project_id not in projects:
         raise HTTPException(status_code=404, detail="Project not found")
 
     project = projects[project_id]
 
-    # Validate audio files
-    if not await validate_audio_file(description_audio):
-        raise HTTPException(status_code=400, detail="Invalid description audio format")
-    if not await validate_audio_file(rhythm_audio):
-        raise HTTPException(status_code=400, detail="Invalid rhythm audio format")
+    if not await validate_audio_file(audio):
+        raise HTTPException(status_code=400, detail="Invalid audio format")
 
-    # Read audio files
-    desc_bytes = await read_upload_file(description_audio)
-    rhythm_bytes = await read_upload_file(rhythm_audio)
+    audio_bytes = await read_upload_file(audio)
+    content_type = get_content_type(audio.filename or "audio.wav")
 
-    # Step 1: Transcribe description
-    desc_content_type = get_content_type(description_audio.filename or "audio.wav")
-    transcript = await transcription.transcribe(desc_bytes, desc_content_type)
+    # Segment the recording
+    segments = await segmenter.segment_recording(audio_bytes, content_type)
 
-    if not transcript:
-        raise HTTPException(status_code=400, detail="Could not transcribe description audio")
+    # Extract segment audio
+    segment_audio_data: dict[str, bytes] = {}
+    for seg in segments:
+        if seg.type != SegmentType.SPEECH:
+            seg_audio_path = await segmenter.extract_segment_audio(audio_bytes, seg)
+            with open(seg_audio_path, "rb") as f:
+                segment_audio_data[seg.id] = f.read()
+            seg.audio_file = seg_audio_path
 
-    # Step 2: Parse description
-    description = await description_parser.parse_description(transcript)
+    # Get speech transcripts
+    speech_transcripts = [
+        seg.transcript for seg in segments
+        if seg.type == SegmentType.SPEECH and seg.transcript
+    ]
 
-    # Step 3: Analyze rhythm
-    rhythm, _ = await rhythm_analyzer.analyze_rhythm(rhythm_bytes, project.bpm)
+    # Add segments to project
+    project.segments.extend(segments)
 
-    # Step 4: Assign instruments to beats
-    rhythm = rhythm_analyzer.assign_instruments(rhythm, description.instruments)
-
-    # Step 5: Lookup samples
-    sample_mapping = sample_lookup.lookup_samples(description)
-
-    if not sample_mapping:
-        raise HTTPException(status_code=500, detail="No samples found for the requested instruments")
-
-    # Step 6: Render layer
-    audio_file = track_assembler.render_layer(
-        rhythm=rhythm,
-        sample_mapping=sample_mapping,
-        bpm=project.bpm,
+    # Run agent
+    project, _ = await agent.orchestrate(
+        segments=segments,
+        speech_instructions=speech_transcripts,
+        segment_audio_data=segment_audio_data,
+        project=project,
     )
 
-    # Create layer
-    layer = Layer(
-        id=str(uuid.uuid4()),
-        description=description,
-        rhythm=rhythm,
-        sample_mapping=sample_mapping,
-        audio_file=audio_file,
-    )
+    project.updated_at = datetime.now()
 
-    # Add to project
-    project.layers.append(layer)
+    if not project.layers:
+        raise HTTPException(status_code=500, detail="Failed to create layer")
 
-    return layer
+    return project.layers[-1]
+
+
+@router.delete("/api/v1/projects/{project_id}/layers/{layer_id}")
+async def delete_layer(project_id: str, layer_id: str):
+    """Remove a layer from a project."""
+    if project_id not in projects:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    project = projects[project_id]
+    original_count = len(project.layers)
+    project.layers = [l for l in project.layers if l.id != layer_id]
+
+    if len(project.layers) == original_count:
+        raise HTTPException(status_code=404, detail="Layer not found")
+
+    project.updated_at = datetime.now()
+    return {"message": "Layer deleted"}
 
 
 @router.get("/api/v1/projects/{project_id}/mix")
-async def mix_project(project_id: str):
+async def mix_project_endpoint(project_id: str):
     """
     Mix all layers in a project into a final MP3.
 
@@ -192,6 +375,7 @@ async def mix_project(project_id: str):
     try:
         output_path = track_assembler.mix_project(project)
         project.mixed_file = output_path
+        project.updated_at = datetime.now()
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -207,7 +391,7 @@ async def speak(request: SpeakRequest):
     """
     Convert text to speech using Waves TTS.
 
-    Returns WAV audio bytes.
+    Returns WAV audio bytes for voice feedback.
     """
     if not request.text:
         raise HTTPException(status_code=400, detail="Text is required")
@@ -217,7 +401,7 @@ async def speak(request: SpeakRequest):
     return Response(
         content=audio_bytes,
         media_type="audio/wav",
-        headers={"Content-Disposition": f'attachment; filename="speech.wav"'},
+        headers={"Content-Disposition": 'attachment; filename="speech.wav"'},
     )
 
 

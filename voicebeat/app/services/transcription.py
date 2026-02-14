@@ -1,9 +1,11 @@
 import httpx
+import logging
 from typing import Optional
 import sys
 sys.path.insert(0, str(__file__).rsplit("/", 4)[0])
 from config.settings import settings
 
+logger = logging.getLogger(__name__)
 
 PULSE_STT_URL = "https://waves-api.smallest.ai/api/v1/pulse/get_text"
 
@@ -50,6 +52,15 @@ async def transcribe_with_timestamps(
     Returns:
         Full API response dict with transcription, words, and utterances
     """
+    logger.info("=" * 60)
+    logger.info("STT: Sending audio to Pulse STT API")
+    logger.info(f"STT: Audio size: {len(audio_bytes)} bytes")
+    logger.info(f"STT: Content-Type: {content_type}")
+    logger.info(f"STT: Model: {settings.pulse_model}")
+
+    if not settings.smallest_api_key:
+        raise ValueError("SMALLEST_API_KEY is not set! Add it to your .env file.")
+
     params = {
         "model": settings.pulse_model,
         "language": language,
@@ -68,8 +79,18 @@ async def transcribe_with_timestamps(
             headers=headers,
             content=audio_bytes,
         )
+        logger.info(f"STT: Response status: {response.status_code}")
         response.raise_for_status()
-        return response.json()
+        result = response.json()
+
+        logger.info(f"STT: Response keys: {list(result.keys())}")
+        logger.info(f"STT: Transcription: '{result.get('transcription', '')}'")
+        logger.info(f"STT: Words count: {len(result.get('words', []))}")
+        if result.get('words'):
+            logger.info(f"STT: Words detail: {result.get('words')}")
+        logger.info("=" * 60)
+
+        return result
 
 
 def get_content_type_for_extension(filename: str) -> str:
