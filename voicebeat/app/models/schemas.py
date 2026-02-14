@@ -33,6 +33,7 @@ class SegmentType(str, Enum):
     SPEECH = "speech"
     MELODY = "melody"   # Pitched musical content (humming, singing)
     RHYTHM = "rhythm"   # Unpitched percussive content (beatboxing, tapping)
+    VOCAL = "vocal"     # Raw singing voice (preserved with autotune)
 
 
 class AudioSegment(BaseModel):
@@ -42,6 +43,7 @@ class AudioSegment(BaseModel):
     start_seconds: float
     end_seconds: float
     transcript: Optional[str] = None  # Only for speech segments
+    words: Optional[list[dict]] = None  # [{word, start, end}, ...] from STT
     audio_file: Optional[str] = None  # Path to extracted audio chunk
 
 
@@ -100,6 +102,7 @@ class Layer(BaseModel):
     melody: Optional[MelodyContour] = None
     sample_mapping: dict[str, str] = {}
     audio_file: Optional[str] = None
+    start_bar: int = 0  # Bar offset in the song (0 = from the start)
     created_at: datetime = Field(default_factory=datetime.now)
 
 
