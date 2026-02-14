@@ -25,10 +25,11 @@ from app.services import transcription
 
 class SpeechRegion:
     """Helper class for a detected speech region."""
-    def __init__(self, start: float, end: float, text: str = ""):
+    def __init__(self, start: float, end: float, text: str = "", words: list[dict] | None = None):
         self.start = start
         self.end = end
         self.text = text
+        self.words = words or []
 
 
 async def segment_recording(
@@ -95,6 +96,7 @@ async def segment_recording(
             start_seconds=region.start,
             end_seconds=region.end,
             transcript=region.text,
+            words=region.words,
         )
         segments.append(segment)
         logger.info(f"SEGMENTER: Speech segment {i+1}: {region.start:.2f}s - {region.end:.2f}s = '{region.text}'")
@@ -166,25 +168,30 @@ def _merge_close_words(
     current_start = w0.get("start", 0)
     current_end = min(w0.get("end", 0), current_start + max_word_duration)
     current_text = w0.get("word", "")
+    current_words = [{"word": w0.get("word", ""), "start": w0.get("start", 0),
+                      "end": min(w0.get("end", 0), w0.get("start", 0) + max_word_duration)}]
 
     for word in words[1:]:
         word_start = word.get("start", 0)
         word_end = min(word.get("end", 0), word_start + max_word_duration)
         word_text = word.get("word", "")
+        word_dict = {"word": word_text, "start": word_start, "end": word_end}
 
         # If gap between current region and this word is small, merge
         if word_start - current_end <= gap_threshold:
             current_end = word_end
             current_text += " " + word_text
+            current_words.append(word_dict)
         else:
             # Save current region and start a new one
-            regions.append(SpeechRegion(current_start, current_end, current_text.strip()))
+            regions.append(SpeechRegion(current_start, current_end, current_text.strip(), current_words))
             current_start = word_start
             current_end = word_end
             current_text = word_text
+            current_words = [word_dict]
 
     # Don't forget the last region
-    regions.append(SpeechRegion(current_start, current_end, current_text.strip()))
+    regions.append(SpeechRegion(current_start, current_end, current_text.strip(), current_words))
 
     return regions
 
