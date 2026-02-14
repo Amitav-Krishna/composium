@@ -1,9 +1,12 @@
-import httpx
-from pathlib import Path
+import io
 import sys
+from pathlib import Path
+
+import httpx
+from pydub import AudioSegment
+
 sys.path.insert(0, str(__file__).rsplit("/", 4)[0])
 from config.settings import settings
-
 
 WAVES_TTS_URL = "https://waves-api.smallest.ai/api/v1/lightning/get_speech"
 
@@ -47,6 +50,25 @@ async def speak(
         )
         response.raise_for_status()
         return response.content
+
+
+async def speak_mp3(
+    text: str,
+    voice_id: str | None = None,
+    sample_rate: int | None = None,
+) -> bytes:
+    """
+    Convert text to speech using Smallest.ai Waves Lightning TTS,
+    then transcode WAV bytes to MP3.
+
+    Returns:
+        Raw MP3 audio bytes
+    """
+    wav_bytes = await speak(text, voice_id, sample_rate)
+    audio_segment = AudioSegment.from_file(io.BytesIO(wav_bytes), format="wav")
+    mp3_buffer = io.BytesIO()
+    audio_segment.export(mp3_buffer, format="mp3")
+    return mp3_buffer.getvalue()
 
 
 async def speak_to_file(

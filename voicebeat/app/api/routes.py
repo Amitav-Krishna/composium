@@ -5,46 +5,66 @@ The main endpoint is /api/v1/process which accepts a single recording
 containing both speech (instructions) and music (humming/beatboxing).
 """
 
-import uuid
 import logging
-from pathlib import Path
-from datetime import datetime
-from fastapi import APIRouter, File, UploadFile, HTTPException
-from fastapi.responses import FileResponse, Response
 import sys
+import uuid
+from datetime import datetime
+from pathlib import Path
+
+from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
+from fastapi.responses import FileResponse, Response
+
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 logger = logging.getLogger(__name__)
 
 from config.settings import settings
+
 from app.models.schemas import (
     DescribeResponse,
-    RhythmResponse,
-    Project,
-    Layer,
-    ProjectCreateRequest,
-    SpeakRequest,
     HealthResponse,
-    SampleCatalogResponse,
-    ProcessResponse,
-    SegmentType,
+    Layer,
     MusicDescription,
+    ProcessResponse,
+    Project,
+    ProjectCreateRequest,
+    RhythmResponse,
+    SampleCatalogResponse,
+    SegmentType,
+    SpeakRequest,
 )
 from app.services import (
-    transcription,
-    tts,
+    agent,
     description_parser,
     rhythm_analyzer,
     sample_lookup,
-    track_assembler,
     segmenter,
-    agent,
+    track_assembler,
+    transcription,
+    tts,
     visualizer,
 )
-from app.utils.audio import get_content_type, validate_audio_file, read_upload_file
-
+from app.utils.audio import get_content_type, read_upload_file, validate_audio_file
 
 router = APIRouter()
+
+
+@router.get("/api/docs", include_in_schema=False)
+async def swagger_ui():
+    return get_swagger_ui_html(
+        openapi_url="/openapi.json",
+        title="VoiceBeat API - Swagger UI",
+    )
+
+
+@router.get("/api/redoc", include_in_schema=False)
+async def redoc_ui():
+    return get_redoc_html(
+        openapi_url="/openapi.json",
+        title="VoiceBeat API - ReDoc",
+    )
+
 
 # In-memory project storage
 projects: dict[str, Project] = {}
@@ -87,7 +107,9 @@ async def process_recording(
 
     audio_bytes = await read_upload_file(audio)
     content_type = get_content_type(audio.filename or "audio.wav")
-    logger.info(f"PROCESS: Read {len(audio_bytes)} bytes, determined content_type={content_type}")
+    logger.info(
+        f"PROCESS: Read {len(audio_bytes)} bytes, determined content_type={content_type}"
+    )
 
     # Step 1: Segment the recording
     logger.info("PROCESS: Step 1 - Segmenting recording...")
@@ -108,15 +130,20 @@ async def process_recording(
             with open(seg_audio_path, "rb") as f:
                 segment_audio_data[seg.id] = f.read()
             seg.audio_file = seg_audio_path
-            logger.info(f"PROCESS: Extracted segment {seg.id[:8]} -> {seg_audio_path} ({len(segment_audio_data[seg.id])} bytes)")
+            logger.info(
+                f"PROCESS: Extracted segment {seg.id[:8]} -> {seg_audio_path} ({len(segment_audio_data[seg.id])} bytes)"
+            )
 
     # Step 3: Get speech transcripts for instructions
     logger.info("PROCESS: Step 3 - Extracting speech transcripts...")
     speech_transcripts = [
-        seg.transcript for seg in segments
+        seg.transcript
+        for seg in segments
         if seg.type == SegmentType.SPEECH and seg.transcript
     ]
-    logger.info(f"PROCESS: Found {len(speech_transcripts)} speech transcripts: {speech_transcripts}")
+    logger.info(
+        f"PROCESS: Found {len(speech_transcripts)} speech transcripts: {speech_transcripts}"
+    )
 
     # Create project
     project_id = str(uuid.uuid4())
@@ -134,7 +161,9 @@ async def process_recording(
         project.description = description
         if description.tempo_bpm:
             project.bpm = description.tempo_bpm
-        logger.info(f"PROCESS: Parsed description: genre={description.genre}, tempo={description.tempo_bpm}, instruments={description.instruments}")
+        logger.info(
+            f"PROCESS: Parsed description: genre={description.genre}, tempo={description.tempo_bpm}, instruments={description.instruments}"
+        )
     else:
         logger.info("PROCESS: Step 4 - No speech instructions to parse")
 
@@ -317,7 +346,8 @@ async def add_layer(
 
     # Get speech transcripts
     speech_transcripts = [
-        seg.transcript for seg in segments
+        seg.transcript
+        for seg in segments
         if seg.type == SegmentType.SPEECH and seg.transcript
     ]
 
@@ -386,7 +416,34 @@ async def mix_project_endpoint(project_id: str):
     )
 
 
-@router.post("/api/v1/speak")
+@router.post(
+    "/api/v1/tts",
+    response_class=Response,
+    responses={200: {"content": {"audio/mpeg": {}}}},
+)
+async def smallest_tts(request: SpeakRequest):
+    """
+    Convert text to speech using Smallest.ai Waves Lightning TTS.
+
+    Returns MP3 audio bytes.
+    """
+    if not request.text:
+        raise HTTPException(status_code=400, detail="Text is required")
+
+    audio_bytes = await tts.speak_mp3(request.text, request.voice_id)
+
+    return Response(
+        content=audio_bytes,
+        media_type="audio/mpeg",
+        headers={"Content-Disposition": 'attachment; filename="speech.mp3"'},
+    )
+
+
+@router.post(
+    "/api/v1/speak",
+    response_class=Response,
+    responses={200: {"content": {"audio/wav": {}}}},
+)
 async def speak(request: SpeakRequest):
     """
     Convert text to speech using Waves TTS.
