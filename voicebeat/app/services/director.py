@@ -162,16 +162,20 @@ PHASE1_TOOLS = [
         "function": {
             "name": "delegate_vocal",
             "description": (
-                "Create vocals from a user's speech or singing segment. "
-                "For speech segments: the vocal subagent designs a melody or rhythm for the lyrics. "
-                "For melody segments: applies autotune to existing singing."
+                "Create vocals via TTS synthesis. Provide either a speech segment_id "
+                "(lyrics extracted from transcript) or explicit lyrics text. "
+                "The vocal subagent designs a melody or rhythm, then TTS generates clean audio per word."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "segment_id": {
                         "type": "string",
-                        "description": "The segment ID containing speech lyrics or singing",
+                        "description": "Optional: speech segment ID to extract lyrics from its transcript",
+                    },
+                    "lyrics": {
+                        "type": "string",
+                        "description": "Optional: explicit lyrics text (alternative to segment_id)",
                     },
                     "mode": {
                         "type": "string",
@@ -183,7 +187,7 @@ PHASE1_TOOLS = [
                         "description": "Layer name (e.g. 'Lead Vocals', 'Rap Flow')",
                     },
                 },
-                "required": ["segment_id", "mode"],
+                "required": ["mode"],
             },
         },
     },
@@ -390,9 +394,11 @@ class Director:
                     finish_signaled = True
 
             if finish_signaled:
+                self._auto_delegate_vocals(delegations, song_plan)
                 logger.info(f"DIRECTOR P1: Planning complete — {len(delegations)} delegations")
                 return delegations, song_plan
 
+        self._auto_delegate_vocals(delegations, song_plan)
         return delegations, song_plan
 
     def _handle_phase1_tool(
@@ -457,56 +463,80 @@ class Director:
             }
 
         elif name == "delegate_vocal":
-            sid = args["segment_id"]
+            sid = args.get("segment_id")
+            lyrics = args.get("lyrics")
             mode = args.get("mode", "melodic")
 
-            # Resolve segment ID in audio data
-            resolved_sid = None
-            if sid in segment_audio:
-                resolved_sid = sid
-            else:
-                for full_id in segment_audio:
-                    if full_id.startswith(sid) or sid.startswith(full_id):
-                        resolved_sid = full_id
+            words = []
+            transcript = ""
+
+            if sid:
+                # Resolve segment ID — find the AudioSegment for word timestamps
+                resolved_sid = None
+                if sid in segment_audio:
+                    resolved_sid = sid
+                else:
+                    for full_id in segment_audio:
+                        if full_id.startswith(sid) or sid.startswith(full_id):
+                            resolved_sid = full_id
+                            break
+
+                if resolved_sid is None:
+                    available = list(segment_audio.keys())
+                    if available:
+                        short_ids = [s[:8] for s in available]
+                        return {
+                            "success": False,
+                            "error": f"Segment '{sid}' not found. Available: {short_ids}",
+                        }
+
+                # Get words and transcript from the segment
+                for seg in self._current_segments:
+                    if seg.id == resolved_sid or seg.id.startswith(sid) or sid.startswith(seg.id):
+                        words = seg.words or []
+                        transcript = seg.transcript or " ".join(w["word"] for w in words)
                         break
 
-            if resolved_sid is None:
-                available = list(segment_audio.keys())
-                if available:
-                    short_ids = [s[:8] for s in available]
+            elif lyrics:
+                # Build word list from explicit lyrics text
+                transcript = lyrics
+                words = [{"word": w} for w in lyrics.split() if w.strip()]
+
+            else:
+                # Auto-pick first speech segment with words
+                for seg in self._current_segments:
+                    if seg.type == SegmentType.SPEECH and seg.words and len(seg.words) > 0:
+                        words = seg.words
+                        transcript = seg.transcript or " ".join(w["word"] for w in words)
+                        logger.info(f"DIRECTOR P1: delegate_vocal auto-picked speech segment {seg.id[:8]}")
+                        break
+
+                if not words:
                     return {
                         "success": False,
-                        "error": f"Segment '{sid}' not found. Available: {short_ids}",
-                    }
-                else:
-                    return {
-                        "success": False,
-                        "error": "No audio segments available. Cannot create vocals without audio.",
+                        "error": "No speech segments or lyrics available for vocals.",
                     }
 
-            # Find the AudioSegment object to get word timestamps
-            words = None
-            for seg in self._current_segments:
-                if seg.id == resolved_sid or seg.id.startswith(sid) or sid.startswith(seg.id):
-                    words = seg.words
-                    break
+            if not words:
+                return {
+                    "success": False,
+                    "error": "No words found — segment has no transcript or lyrics are empty.",
+                }
 
             d = {
                 "type": "vocal",
-                "segment_id": resolved_sid,
                 "mode": mode,
                 "name": args.get("name", "Vocals"),
-                "words": words or [],
+                "words": words,
+                "transcript": transcript,
                 "genre": song_plan.get("genre", "pop"),
                 "style_notes": args.get("style_notes", ""),
                 "sections": song_plan.get("sections", []),
-                "segment_audio": segment_audio,
             }
             delegations.append(d)
-            word_count = len(words) if words else 0
             return {
                 "success": True,
-                "message": f"Vocal delegated: {mode} mode, segment {resolved_sid[:8]}, {word_count} words",
+                "message": f"Vocal delegated: {mode} mode, {len(words)} words",
             }
 
         elif name == "finish_planning":
@@ -756,6 +786,35 @@ class Director:
     # Helpers
     # ═══════════════════════════════════════════════════════════════════
 
+    def _auto_delegate_vocals(self, delegations: list[dict], song_plan: dict):
+        """Auto-add a vocal delegation if the LLM didn't and speech segments exist."""
+        has_vocal = any(d["type"] == "vocal" for d in delegations)
+        if has_vocal:
+            return
+
+        for seg in self._current_segments:
+            if seg.type == SegmentType.SPEECH and seg.words and len(seg.words) > 0:
+                words = seg.words
+                transcript = seg.transcript or " ".join(w["word"] for w in words)
+                genre = song_plan.get("genre", "pop")
+                mode = "rhythmic" if genre in ("hip-hop", "electronic") else "melodic"
+                d = {
+                    "type": "vocal",
+                    "mode": mode,
+                    "name": "Vocals",
+                    "words": words,
+                    "transcript": transcript,
+                    "genre": genre,
+                    "style_notes": "",
+                    "sections": song_plan.get("sections", []),
+                }
+                delegations.append(d)
+                logger.info(
+                    f"DIRECTOR: Auto-delegated vocals ({mode} mode, "
+                    f"{len(words)} words from segment {seg.id[:8]})"
+                )
+                return
+
     def _find_layer(self, project: Project, layer_id: str) -> Layer | None:
         for lyr in project.layers:
             if lyr.id == layer_id or lyr.id.startswith(layer_id):
@@ -810,8 +869,14 @@ Your job:
 3. Delegate instruments:
    - delegate_drums for percussion
    - delegate_melody for each melodic instrument (call multiple times for piano + bass + etc.)
-   - delegate_vocal if the user wants their singing voice preserved
+   - delegate_vocal for vocals — extracts lyrics from speech transcripts and synthesizes via TTS
 4. Call finish_planning when all delegations are done
+
+## IMPORTANT: When to delegate vocals
+- If the user's speech contains lyrics (even mixed with instructions), ALWAYS delegate vocals
+- If the user mentions "vocals", "singing", "lyrics", "rap", "words", etc., ALWAYS delegate vocals
+- The vocal subagent will filter out instruction words and keep only actual lyrics
+- When in doubt, delegate vocals — the subagent handles lyrics extraction intelligently
 
 ## CRITICAL: Follow the user's instructions exactly
 The user's requests take absolute priority over any default structure.
@@ -833,12 +898,13 @@ Choose total_bars based on the user's request:
 - If the user provided a melody segment, pass its ID to delegate_melody
 - Match complexity to the user's request: short songs need fewer instruments
 
-## Vocals
-- delegate_vocal works with BOTH speech segments (spoken lyrics) and melody segments (singing)
-- For speech segments: set mode='melodic' (pop/R&B/jazz/lo-fi) or mode='rhythmic' (hip-hop/electronic/rock)
-- For melody segments: either mode works (autotune is applied to existing singing)
-- Speech segments with >2 words can be vocalized — the vocal subagent designs the melody/rhythm
-- If the user asks for vocals and has a speech segment with lyrics, USE IT"""
+## Vocals (TTS-based pipeline)
+- delegate_vocal synthesizes vocals via TTS — no raw audio segment needed
+- Provide segment_id (extracts lyrics from speech transcript) OR lyrics (explicit text)
+- mode='melodic' for singing (pop/R&B/jazz/lo-fi) — TTS words are pitch-shifted to MIDI notes
+- mode='rhythmic' for rap/spoken word (hip-hop/electronic/rock) — TTS words are time-snapped to beat grid
+- The vocal subagent filters out instruction words, keeping only actual lyrics
+- If the user asks for vocals and has a speech segment, use its segment_id to extract lyrics"""
 
     def _phase1_refinement_system_prompt(self) -> str:
         return """You are a music director refining an existing track.
@@ -857,6 +923,7 @@ The user wants specific changes. You should:
 
 Be surgical: if the user says "change the drums", only delegate drums.
 If they say "add bass", only delegate a bass melody subagent.
+If they say "add vocals" or "add singing", delegate_vocal with lyrics or a speech segment_id.
 If they say "make it shorter", call plan_song with fewer bars then re-delegate ALL instruments with shorter sections.
 For simple operations (remove a layer, rearrange), just call finish_planning
 with no delegations — the arrangement phase will handle it."""
@@ -944,12 +1011,15 @@ Call complete with a brief summary when the arrangement is solid."""
                 vocal_candidates.append(f"- {segment.id} (singing/melody)")
 
         if vocal_candidates:
-            lines.append("## Segments available for delegate_vocal:")
+            lines.append("## Segments available for delegate_vocal (TTS-synthesized):")
+            lines.append("Lyrics from speech transcripts will be synthesized via TTS (clean per-word audio).")
             lines.append("Use mode='melodic' for singing, mode='rhythmic' for rap/spoken word.")
             lines.extend(vocal_candidates)
             lines.append("")
         else:
             lines.append("## Vocals: No segments available for vocals.\n")
+            lines.append("You can still use delegate_vocal with explicit lyrics text.")
+            lines.append("")
 
         lines.append("## Your Task:")
         lines.append("Plan the song structure and delegate instruments to subagents.")
@@ -1014,12 +1084,15 @@ Call complete with a brief summary when the arrangement is solid."""
                     vocal_candidates.append(f"- {seg.id} (singing/melody)")
 
         if vocal_candidates:
-            lines.append("## Segments available for delegate_vocal:")
+            lines.append("## Segments available for delegate_vocal (TTS-synthesized):")
+            lines.append("Lyrics from speech transcripts will be synthesized via TTS (clean per-word audio).")
             lines.append("Use mode='melodic' for singing, mode='rhythmic' for rap/spoken word.")
             lines.extend(vocal_candidates)
             lines.append("")
         else:
             lines.append("## Vocals: No segments available for vocals.\n")
+            lines.append("You can still use delegate_vocal with explicit lyrics text.")
+            lines.append("")
 
         lines.append("## Your Task:")
         lines.append("Decide what needs to change. Delegate only the instruments that need work.")

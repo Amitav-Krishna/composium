@@ -5,7 +5,19 @@ sys.path.insert(0, str(__file__).rsplit("/", 4)[0])
 from config.settings import settings
 
 
-WAVES_TTS_URL = "https://waves-api.smallest.ai/api/v1/lightning/get_speech"
+WAVES_TTS_URL = "https://waves-api.smallest.ai/api/v1/lightning-v2/get_speech"
+
+_word_cache: dict[tuple[str, str], bytes] = {}
+
+
+async def speak_word(word: str, voice_id: str | None = None) -> bytes:
+    """Cached single-word TTS. Avoids redundant API calls for repeated words."""
+    cache_key = (word.lower().strip(), voice_id or settings.tts_voice_id)
+    if cache_key in _word_cache:
+        return _word_cache[cache_key]
+    audio = await speak(word, voice_id)
+    _word_cache[cache_key] = audio
+    return audio
 
 
 async def speak(

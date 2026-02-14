@@ -6,6 +6,7 @@ using librosa. Preserves the original voice timbre while snapping pitches
 to musically correct frequencies.
 """
 
+import asyncio
 import io
 import uuid
 import logging
@@ -19,6 +20,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from config.settings import settings
+from app.services import tts
 
 logger = logging.getLogger(__name__)
 
@@ -532,3 +534,235 @@ def _detect_key_from_f0(
             best_key = f"{NOTE_NAMES[root]} minor"
 
     return best_key
+
+
+async def tts_melodic_vocal(
+    melody_design: list[dict],
+    bpm: int = 120,
+    voice_id: str | None = None,
+) -> str:
+    """
+    Generate melodic vocals from TTS — pitch-shift and time-stretch each word
+    to match the LLM-designed melody.
+
+    Args:
+        melody_design: [{word, midi_note, start_beat, duration_beats}, ...]
+        bpm: Beats per minute
+        voice_id: TTS voice ID override
+
+    Returns:
+        Path to output MP3 file
+    """
+    sr = 22050
+    spb = 60.0 / bpm
+
+    logger.info(f"vocal_processor: TTS generating {len(melody_design)} words (melodic)")
+
+    # 1. Generate TTS for all words in parallel
+    tts_results = await asyncio.gather(
+        *[tts.speak_word(d["word"], voice_id) for d in melody_design]
+    )
+
+    # 2. Calculate output buffer length
+    total_beats = 0
+    for d in melody_design:
+        total_beats = max(total_beats, d.get("start_beat", 0) + d.get("duration_beats", 1))
+    total_seconds = total_beats * spb + 1.0  # +1s padding
+    output = np.zeros(int(total_seconds * sr), dtype=np.float32)
+
+    # 3. Process each word
+    for d, wav_bytes in zip(melody_design, tts_results):
+        target_midi = d.get("midi_note", 60)
+        start_beat = d.get("start_beat", 0)
+        duration_beats = d.get("duration_beats", 1)
+
+        # Load TTS WAV
+        try:
+            y, orig_sr = sf.read(io.BytesIO(wav_bytes))
+            if len(y.shape) > 1:
+                y = np.mean(y, axis=1)
+            y = y.astype(np.float32)
+        except Exception as e:
+            logger.warning(f"vocal_processor: failed to load TTS for '{d['word']}': {e}")
+            continue
+
+        # Resample from TTS sample rate to working rate
+        if orig_sr != sr:
+            y = librosa.resample(y, orig_sr=orig_sr, target_sr=sr)
+
+        # Trim silence
+        y_trimmed, _ = librosa.effects.trim(y, top_db=25)
+        if len(y_trimmed) > 256:
+            y = y_trimmed
+
+        # Detect natural pitch via PYIN
+        f0, voiced_flag, _ = librosa.pyin(y, fmin=80, fmax=800, sr=sr, hop_length=512)
+        voiced_freqs = f0[voiced_flag & ~np.isnan(f0)] if voiced_flag is not None else np.array([])
+
+        if len(voiced_freqs) > 0:
+            avg_freq = float(np.nanmean(voiced_freqs))
+            if avg_freq > 0:
+                detected_midi = 69 + 12 * np.log2(avg_freq / 440.0)
+                shift = target_midi - detected_midi
+                shift = max(-7, min(7, shift))  # Clamp ±7 semitones
+
+                if abs(shift) > 0.1:
+                    try:
+                        y = librosa.effects.pitch_shift(y, sr=sr, n_steps=shift)
+                    except Exception as e:
+                        logger.warning(f"vocal_processor: pitch shift failed for '{d['word']}': {e}")
+
+        # Time-stretch to target duration
+        target_duration = duration_beats * spb
+        current_duration = len(y) / sr
+        if current_duration > 0 and abs(target_duration - current_duration) > 0.05:
+            rate = current_duration / target_duration
+            rate = max(0.5, min(2.0, rate))
+            try:
+                y = librosa.effects.time_stretch(y, rate=rate)
+            except Exception as e:
+                logger.warning(f"vocal_processor: time stretch failed for '{d['word']}': {e}")
+
+        # Place in output buffer with crossfade
+        out_start = int(start_beat * spb * sr)
+        out_end = min(len(output), out_start + len(y))
+        actual_len = out_end - out_start
+        if actual_len > 0:
+            fade = min(64, actual_len // 4)
+            chunk = y[:actual_len].copy()
+            if fade > 0:
+                chunk[:fade] *= np.linspace(0, 1, fade)
+                chunk[-fade:] *= np.linspace(1, 0, fade)
+            output[out_start:out_end] += chunk
+
+    # 4. Normalize and export
+    peak = np.max(np.abs(output))
+    if peak > 0:
+        output = output * (0.9 / peak)
+
+    output_dir = Path(settings.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_path = str(output_dir / f"vocal_melody_{uuid.uuid4().hex[:8]}.mp3")
+
+    wav_buffer = io.BytesIO()
+    sf.write(wav_buffer, output, sr, format="WAV")
+    wav_buffer.seek(0)
+    audio_seg = PydubSegment.from_wav(wav_buffer)
+    audio_seg.export(output_path, format="mp3")
+
+    logger.info(f"vocal_processor: exported melodic vocal to {output_path}")
+    return output_path
+
+
+async def tts_rhythmic_vocal(
+    rhythm_design: list[dict],
+    bpm: int = 120,
+    total_bars: int = 4,
+    voice_id: str | None = None,
+) -> str:
+    """
+    Generate rhythmic vocals from TTS — time-stretch words onto beat grid.
+    No pitch-shifting (rap/spoken word mode).
+
+    Args:
+        rhythm_design: [{word, bar, beat_position}, ...]
+        bpm: Beats per minute
+        total_bars: Total bars for the output buffer
+        voice_id: TTS voice ID override
+
+    Returns:
+        Path to output MP3 file
+    """
+    sr = 22050
+    spb = 60.0 / bpm
+    bar_sec = 4 * spb
+
+    logger.info(f"vocal_processor: TTS generating {len(rhythm_design)} words (rhythmic)")
+
+    # 1. Generate TTS for all words in parallel
+    tts_results = await asyncio.gather(
+        *[tts.speak_word(d["word"], voice_id) for d in rhythm_design]
+    )
+
+    # 2. Create output buffer
+    total_seconds = total_bars * bar_sec + 1.0
+    output = np.zeros(int(total_seconds * sr), dtype=np.float32)
+
+    # 3. Build sorted placement list
+    placements = []
+    for d, wav_bytes in zip(rhythm_design, tts_results):
+        bar = d.get("bar", 0)
+        beat_pos = d.get("beat_position", 0)
+        target_sec = bar * bar_sec + (beat_pos / 4.0) * spb
+        placements.append((d, wav_bytes, target_sec))
+
+    placements.sort(key=lambda x: x[2])
+
+    # 4. Process each word
+    for i, (d, wav_bytes, target_sec) in enumerate(placements):
+        # Load TTS WAV
+        try:
+            y, orig_sr = sf.read(io.BytesIO(wav_bytes))
+            if len(y.shape) > 1:
+                y = np.mean(y, axis=1)
+            y = y.astype(np.float32)
+        except Exception as e:
+            logger.warning(f"vocal_processor: failed to load TTS for '{d['word']}': {e}")
+            continue
+
+        # Resample
+        if orig_sr != sr:
+            y = librosa.resample(y, orig_sr=orig_sr, target_sr=sr)
+
+        # Trim silence
+        y_trimmed, _ = librosa.effects.trim(y, top_db=25)
+        if len(y_trimmed) > 256:
+            y = y_trimmed
+
+        # Calculate available slot (gap until next word)
+        if i + 1 < len(placements):
+            slot_end = placements[i + 1][2]
+        else:
+            slot_end = target_sec + len(y) / sr * 1.5
+
+        available = max(0.05, slot_end - target_sec - 0.02)
+        current_duration = len(y) / sr
+
+        # Time-stretch if needed
+        if current_duration > 0 and abs(available - current_duration) > 0.05:
+            rate = current_duration / available
+            rate = max(0.5, min(2.5, rate))
+            try:
+                y = librosa.effects.time_stretch(y, rate=rate)
+            except Exception as e:
+                logger.warning(f"vocal_processor: time stretch failed for '{d['word']}': {e}")
+
+        # Place in output buffer
+        out_start = int(target_sec * sr)
+        out_end = min(len(output), out_start + len(y))
+        actual_len = out_end - out_start
+        if actual_len > 0:
+            fade = min(64, actual_len // 4)
+            chunk = y[:actual_len].copy()
+            if fade > 0:
+                chunk[:fade] *= np.linspace(0, 1, fade)
+                chunk[-fade:] *= np.linspace(1, 0, fade)
+            output[out_start:out_end] += chunk
+
+    # 5. Normalize and export
+    peak = np.max(np.abs(output))
+    if peak > 0:
+        output = output * (0.9 / peak)
+
+    output_dir = Path(settings.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_path = str(output_dir / f"vocal_rhythm_{uuid.uuid4().hex[:8]}.mp3")
+
+    wav_buffer = io.BytesIO()
+    sf.write(wav_buffer, output, sr, format="WAV")
+    wav_buffer.seek(0)
+    audio_seg = PydubSegment.from_wav(wav_buffer)
+    audio_seg.export(output_path, format="mp3")
+
+    logger.info(f"vocal_processor: exported rhythmic vocal to {output_path}")
+    return output_path
