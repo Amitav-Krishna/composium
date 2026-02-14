@@ -11,7 +11,8 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+import boto3
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
 from fastapi.responses import FileResponse, Response
 
@@ -460,6 +461,74 @@ async def speak(request: SpeakRequest):
         media_type="audio/wav",
         headers={"Content-Disposition": 'attachment; filename="speech.wav"'},
     )
+
+
+@router.post("/api/v1/r2/upload")
+async def upload_to_r2(
+    file: UploadFile = File(...),
+    r2_bucket_name: str | None = None,
+    r2_endpoint: str | None = None,
+    r2_public: str | None = None,
+):
+    """
+    Upload a file to R2 and return a presigned download URL.
+    Uses endpoint, bucket name, and public URL from environment settings.
+    """
+    bucket = r2_bucket_name or settings.r2_bucket_name
+    public_url = r2_public or settings.r2_public_url
+    endpoint = r2_endpoint
+
+    if not endpoint:
+        if not settings.r2_account_id:
+            raise HTTPException(status_code=500, detail="R2 is not configured")
+        endpoint = f"https://{settings.r2_account_id}.r2.cloudflarestorage.com"
+
+    if not all([settings.r2_access_key_id, settings.r2_secret_access_key, bucket]):
+        raise HTTPException(status_code=500, detail="R2 is not configured")
+
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="Filename is required")
+
+    file_bytes = await file.read()
+    if not file_bytes:
+        raise HTTPException(status_code=400, detail="File is empty")
+
+    content_type = get_content_type(file.filename)
+    safe_name = Path(file.filename).name
+    object_key = f"uploads/{uuid.uuid4()}-{safe_name}"
+
+    r2_client = boto3.client(
+        "s3",
+        endpoint_url=endpoint,
+        aws_access_key_id=settings.r2_access_key_id,
+        aws_secret_access_key=settings.r2_secret_access_key,
+        region_name="auto",
+    )
+
+    r2_client.put_object(
+        Bucket=bucket,
+        Key=object_key,
+        Body=file_bytes,
+        ContentType=content_type,
+    )
+
+    expires_in_seconds = 3600
+    download_url = r2_client.generate_presigned_url(
+        "get_object",
+        Params={"Bucket": bucket, "Key": object_key},
+        ExpiresIn=expires_in_seconds,
+    )
+
+    public_download_url = None
+    if public_url:
+        public_download_url = f"{public_url.rstrip('/')}/{object_key}"
+
+    return {
+        "key": object_key,
+        "download_url": download_url,
+        "public_download_url": public_download_url,
+        "expires_in": expires_in_seconds,
+    }
 
 
 @router.get("/samples/catalog", response_model=SampleCatalogResponse)
