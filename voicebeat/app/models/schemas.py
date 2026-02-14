@@ -45,6 +45,7 @@ class AudioSegment(BaseModel):
     audio_file: Optional[str] = None        # Path to extracted audio chunk
     instrument: Optional[Instrument] = None         # Instrument requested in the command
     semantic_command: Optional[str] = None  # The command portion of the utterance
+    volume: Optional[float] = None          # RMS energy of the segment (0.0–1.0)
 
 
 class PitchEvent(BaseModel):

@@ -139,6 +139,8 @@ async def segment_recording(
 
     # Step 5: Build SPEECH segment if there is a command
     if command_text.strip() and boundary_seconds > 0:
+        speech_chunk = y[: int(boundary_seconds * sr)]
+        speech_volume = _rms_to_volume(speech_chunk)
         speech_seg = AudioSegment(
             id=str(uuid.uuid4()),
             type=SegmentType.SPEECH,
@@ -147,9 +149,10 @@ async def segment_recording(
             transcript=command_text,
             semantic_command=command_text,
             instrument=instrument,
+            volume=speech_volume,
         )
         segments.append(speech_seg)
-        logger.info(f"SEGMENTER: Speech segment 0.0s-{boundary_seconds:.2f}s: '{command_text}' instrument={instrument}")
+        logger.info(f"SEGMENTER: Speech segment 0.0s-{boundary_seconds:.2f}s: '{command_text}' instrument={instrument} volume={speech_volume:.3f}")
 
     # Step 6: Beat region = everything after the command
     beat_start = boundary_seconds
@@ -165,7 +168,8 @@ async def segment_recording(
 
         if rms >= silence_threshold:
             seg_type = _classify_music_segment(beat_chunk, sr)
-            logger.info(f"SEGMENTER: Beat classified as {seg_type.value}")
+            beat_volume = _rms_to_volume(beat_chunk)
+            logger.info(f"SEGMENTER: Beat classified as {seg_type.value}, volume={beat_volume:.3f}")
 
             beat_seg = AudioSegment(
                 id=str(uuid.uuid4()),
@@ -174,6 +178,7 @@ async def segment_recording(
                 end_seconds=beat_end,
                 instrument=instrument,
                 semantic_command=command_text if command_text.strip() else None,
+                volume=beat_volume,
             )
             segments.append(beat_seg)
         else:
@@ -263,6 +268,18 @@ async def _extract_instrument(command_text: str) -> Optional[Instrument]:
 # ---------------------------------------------------------------------------
 # Acoustic helpers (unchanged from original)
 # ---------------------------------------------------------------------------
+
+def _rms_to_volume(audio_chunk: np.ndarray) -> float:
+    """
+    Convert an audio chunk to a normalised volume value (0.0–1.0).
+
+    Uses RMS energy mapped through a reference ceiling of 0.2 RMS, which
+    corresponds to a loud but undistorted vocal recording. Values above that
+    are clamped to 1.0.
+    """
+    rms = float(np.sqrt(np.mean(audio_chunk ** 2)))
+    return min(rms / 0.2, 1.0)
+
 
 def _classify_music_segment(audio_chunk: np.ndarray, sr: int) -> SegmentType:
     """

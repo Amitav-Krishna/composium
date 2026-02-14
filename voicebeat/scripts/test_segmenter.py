@@ -54,6 +54,7 @@ async def main(audio_path: str) -> None:
         print(f"    instrument       : {seg.instrument.value if seg.instrument else None}")
         print(f"    semantic_command : {seg.semantic_command!r}")
         print(f"    transcript       : {seg.transcript!r}")
+        print(f"    volume           : {seg.volume:.3f}" if seg.volume is not None else "    volume           : None")
         print(f"    audio_file       : {seg.audio_file}")
         print()
 
