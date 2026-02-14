@@ -9,7 +9,7 @@ import uuid
 import logging
 from pathlib import Path
 from datetime import datetime
-from fastapi import APIRouter, File, UploadFile, HTTPException
+from fastapi import APIRouter, File, Form, UploadFile, HTTPException
 from fastapi.responses import FileResponse, Response
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -103,12 +103,11 @@ async def process_recording(
     logger.info("PROCESS: Step 2 - Extracting audio for each segment...")
     segment_audio_data: dict[str, bytes] = {}
     for seg in segments:
-        if seg.type != SegmentType.SPEECH:
-            seg_audio_path = await segmenter.extract_segment_audio(audio_bytes, seg)
-            with open(seg_audio_path, "rb") as f:
-                segment_audio_data[seg.id] = f.read()
-            seg.audio_file = seg_audio_path
-            logger.info(f"PROCESS: Extracted segment {seg.id[:8]} -> {seg_audio_path} ({len(segment_audio_data[seg.id])} bytes)")
+        seg_audio_path = await segmenter.extract_segment_audio(audio_bytes, seg)
+        with open(seg_audio_path, "rb") as f:
+            segment_audio_data[seg.id] = f.read()
+        seg.audio_file = seg_audio_path
+        logger.info(f"PROCESS: Extracted segment {seg.id[:8]} ({seg.type.value}) -> {seg_audio_path} ({len(segment_audio_data[seg.id])} bytes)")
 
     # Step 3: Get speech transcripts for instructions
     logger.info("PROCESS: Step 3 - Extracting speech transcripts...")
@@ -357,6 +356,95 @@ async def delete_layer(project_id: str, layer_id: str):
     return {"message": "Layer deleted"}
 
 
+@router.post("/api/v1/projects/{project_id}/refine", response_model=ProcessResponse)
+async def refine_project(
+    project_id: str,
+    instructions: str = Form(""),
+    audio: UploadFile = File(None),
+):
+    """
+    Refine an existing project with text instructions and/or new audio.
+
+    Supports three modes:
+    1. Text-only: "add bass drums", "remove the piano"
+    2. Audio + text: user hums/beatboxes new content with instructions
+    3. Vocal: user sings and says "add my voice" -> autotuned vocal layer
+    """
+    logger.info("=" * 80)
+    logger.info(f"REFINE: Project {project_id}")
+    logger.info(f"REFINE: Instructions: {instructions}")
+    logger.info(f"REFINE: Audio provided: {audio is not None and audio.filename is not None}")
+
+    if project_id not in projects:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    project = projects[project_id]
+    segments = None
+    segment_audio_data = None
+
+    # If audio is provided, segment and analyze it
+    if audio and audio.filename:
+        from app.utils.audio import get_content_type, validate_audio_file, read_upload_file
+
+        if not await validate_audio_file(audio):
+            raise HTTPException(status_code=400, detail="Invalid audio file format")
+
+        audio_bytes = await read_upload_file(audio)
+        content_type = get_content_type(audio.filename or "audio.wav")
+
+        logger.info(f"REFINE: Segmenting audio ({len(audio_bytes)} bytes)")
+        segments = await segmenter.segment_recording(audio_bytes, content_type)
+
+        # Extract audio for non-speech segments
+        segment_audio_data = {}
+        for seg in segments:
+            if seg.type != SegmentType.SPEECH:
+                seg_audio_path = await segmenter.extract_segment_audio(audio_bytes, seg)
+                with open(seg_audio_path, "rb") as f:
+                    segment_audio_data[seg.id] = f.read()
+                seg.audio_file = seg_audio_path
+
+        # Collect speech transcripts and append to instructions
+        speech_transcripts = [
+            seg.transcript for seg in segments
+            if seg.type == SegmentType.SPEECH and seg.transcript
+        ]
+        if speech_transcripts:
+            instructions = instructions + " " + " ".join(speech_transcripts)
+            logger.info(f"REFINE: Combined instructions: {instructions}")
+
+        # Add new segments to project
+        project.segments.extend(segments)
+
+    # Run refinement orchestration
+    logger.info("REFINE: Running AI agent for refinement...")
+    project, summary = await agent.orchestrate_refinement(
+        project=project,
+        instructions=instructions,
+        segments=segments,
+        segment_audio_data=segment_audio_data,
+    )
+
+    # Re-mix if we have layers
+    if project.layers:
+        try:
+            project.mixed_file = track_assembler.mix_project(project)
+            logger.info(f"REFINE: Mixed file: {project.mixed_file}")
+        except ValueError as e:
+            logger.warning(f"REFINE: Mix failed: {e}")
+
+    # Save updated project
+    projects[project_id] = project
+
+    logger.info("REFINE: Complete!")
+    logger.info("=" * 80)
+
+    return ProcessResponse(
+        project=project,
+        feedback_text=summary,
+    )
+
+
 @router.get("/api/v1/projects/{project_id}/mix")
 async def mix_project_endpoint(project_id: str):
     """
@@ -410,6 +498,14 @@ async def get_sample_catalog():
     """List all available samples in the library."""
     catalog = sample_lookup.get_sample_catalog()
     return SampleCatalogResponse(**catalog)
+
+
+@router.get("/api/v1/logs")
+async def get_logs(since: int = 0):
+    """Get recent logs. 'since' = index to start from (for polling)."""
+    from app.main import log_buffer
+    logs = log_buffer.get_logs()
+    return {"logs": logs[since:], "total": len(logs)}
 
 
 @router.get("/download/{filename}")
