@@ -1,10 +1,23 @@
+import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pathlib import Path
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from app.api.routes import router
 from config.settings import settings
+
+# Configure logging to show all our debug info
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s | %(name)s | %(message)s',
+    datefmt='%H:%M:%S'
+)
+# Set our app modules to INFO level
+for module in ['app.api.routes', 'app.services.segmenter', 'app.services.transcription', 'app.services.agent']:
+    logging.getLogger(module).setLevel(logging.INFO)
 
 
 app = FastAPI(
@@ -24,6 +37,20 @@ app.add_middleware(
 
 # Include API routes
 app.include_router(router)
+
+# Serve static files
+static_dir = Path(__file__).parent.parent / "static"
+if static_dir.exists():
+    app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+
+
+@app.get("/")
+async def root():
+    """Serve the main interface."""
+    index_file = static_dir / "index.html"
+    if index_file.exists():
+        return FileResponse(str(index_file))
+    return {"message": "VoiceBeat API - visit /docs for API documentation"}
 
 
 @app.on_event("startup")

@@ -4,3 +4,6 @@ __pycache__/
 *.mid
 *.mp3
 *.abc
+
+.env
+.env/
