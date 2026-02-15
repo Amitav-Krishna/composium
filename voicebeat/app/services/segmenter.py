@@ -6,26 +6,34 @@ Everything between speech regions is assumed to be musical content.
 """
 
 import io
-import uuid
 import logging
-import numpy as np
-import librosa
-import soundfile as sf
+import sys
+import tempfile
+import uuid
 from pathlib import Path
 from typing import Optional
-import sys
+
+import librosa
+import numpy as np
+import soundfile as sf
+
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 logger = logging.getLogger(__name__)
 
 from config.settings import settings
+
 from app.models.schemas import AudioSegment, SegmentType
 from app.services import transcription
+from app.services.file_storage import FileStorageService
 
 
 class SpeechRegion:
     """Helper class for a detected speech region."""
-    def __init__(self, start: float, end: float, text: str = "", words: list[dict] | None = None):
+
+    def __init__(
+        self, start: float, end: float, text: str = "", words: list[dict] | None = None
+    ):
         self.start = start
         self.end = end
         self.text = text
@@ -80,8 +88,12 @@ async def segment_recording(
     logger.info("SEGMENTER: Step 2 - Loading audio for analysis...")
     y, sr = _load_audio_from_bytes(audio_bytes)
     total_duration = len(y) / sr
-    logger.info(f"SEGMENTER: Audio loaded: {len(y)} samples, sr={sr}, duration={total_duration:.2f}s")
-    logger.info(f"SEGMENTER: Audio stats: min={y.min():.4f}, max={y.max():.4f}, mean={y.mean():.4f}")
+    logger.info(
+        f"SEGMENTER: Audio loaded: {len(y)} samples, sr={sr}, duration={total_duration:.2f}s"
+    )
+    logger.info(
+        f"SEGMENTER: Audio stats: min={y.min():.4f}, max={y.max():.4f}, mean={y.mean():.4f}"
+    )
 
     # Step 2: Build speech regions from word timestamps
     speech_regions = _merge_close_words(words, gap_threshold)
@@ -99,16 +111,24 @@ async def segment_recording(
             words=region.words,
         )
         segments.append(segment)
-        logger.info(f"SEGMENTER: Speech segment {i+1}: {region.start:.2f}s - {region.end:.2f}s = '{region.text}'")
+        logger.info(
+            f"SEGMENTER: Speech segment {i + 1}: {region.start:.2f}s - {region.end:.2f}s = '{region.text}'"
+        )
 
     # Step 3: Find gaps between speech (potential music segments)
     music_regions = _find_gaps(speech_regions, total_duration, min_music_duration)
-    logger.info(f"SEGMENTER: Step 3 - Found {len(music_regions)} potential music regions (gaps between speech)")
+    logger.info(
+        f"SEGMENTER: Step 3 - Found {len(music_regions)} potential music regions (gaps between speech)"
+    )
     for i, region in enumerate(music_regions):
-        logger.info(f"SEGMENTER: Music region {i+1}: {region.start:.2f}s - {region.end:.2f}s (duration: {region.end - region.start:.2f}s)")
+        logger.info(
+            f"SEGMENTER: Music region {i + 1}: {region.start:.2f}s - {region.end:.2f}s (duration: {region.end - region.start:.2f}s)"
+        )
 
     # Step 4: Filter out silence and classify music segments
-    logger.info("SEGMENTER: Step 4 - Analyzing music regions (filtering silence, classifying)...")
+    logger.info(
+        "SEGMENTER: Step 4 - Analyzing music regions (filtering silence, classifying)..."
+    )
     for region in music_regions:
         # Extract audio chunk
         start_sample = int(region.start * sr)
@@ -116,8 +136,10 @@ async def segment_recording(
         chunk = y[start_sample:end_sample]
 
         # Check if it's silence
-        rms = np.sqrt(np.mean(chunk ** 2))
-        logger.info(f"SEGMENTER: Region {region.start:.2f}-{region.end:.2f}s: RMS={rms:.6f}, threshold={silence_threshold}")
+        rms = np.sqrt(np.mean(chunk**2))
+        logger.info(
+            f"SEGMENTER: Region {region.start:.2f}-{region.end:.2f}s: RMS={rms:.6f}, threshold={silence_threshold}"
+        )
         if rms < silence_threshold:
             logger.info(f"SEGMENTER: -> SKIPPED (silence)")
             continue  # Skip silent regions
@@ -139,7 +161,9 @@ async def segment_recording(
 
     logger.info(f"SEGMENTER: Final result: {len(segments)} segments")
     for seg in segments:
-        logger.info(f"SEGMENTER:   - {seg.type.value}: {seg.start_seconds:.2f}s - {seg.end_seconds:.2f}s")
+        logger.info(
+            f"SEGMENTER:   - {seg.type.value}: {seg.start_seconds:.2f}s - {seg.end_seconds:.2f}s"
+        )
     logger.info("=" * 60)
 
     return segments
@@ -168,8 +192,13 @@ def _merge_close_words(
     current_start = w0.get("start", 0)
     current_end = min(w0.get("end", 0), current_start + max_word_duration)
     current_text = w0.get("word", "")
-    current_words = [{"word": w0.get("word", ""), "start": w0.get("start", 0),
-                      "end": min(w0.get("end", 0), w0.get("start", 0) + max_word_duration)}]
+    current_words = [
+        {
+            "word": w0.get("word", ""),
+            "start": w0.get("start", 0),
+            "end": min(w0.get("end", 0), w0.get("start", 0) + max_word_duration),
+        }
+    ]
 
     for word in words[1:]:
         word_start = word.get("start", 0)
@@ -184,14 +213,20 @@ def _merge_close_words(
             current_words.append(word_dict)
         else:
             # Save current region and start a new one
-            regions.append(SpeechRegion(current_start, current_end, current_text.strip(), current_words))
+            regions.append(
+                SpeechRegion(
+                    current_start, current_end, current_text.strip(), current_words
+                )
+            )
             current_start = word_start
             current_end = word_end
             current_text = word_text
             current_words = [word_dict]
 
     # Don't forget the last region
-    regions.append(SpeechRegion(current_start, current_end, current_text.strip(), current_words))
+    regions.append(
+        SpeechRegion(current_start, current_end, current_text.strip(), current_words)
+    )
 
     return regions
 
@@ -294,8 +329,11 @@ def _load_audio_from_bytes(audio_bytes: bytes) -> tuple[np.ndarray, int]:
     # Fall back to pydub for format conversion (handles webm, mp3, etc.)
     logger.info("AUDIO_LOAD: Trying pydub (ffmpeg) for format conversion...")
     from pydub import AudioSegment
+
     audio = AudioSegment.from_file(io.BytesIO(audio_bytes))
-    logger.info(f"AUDIO_LOAD: pydub loaded: duration={len(audio)}ms, channels={audio.channels}, frame_rate={audio.frame_rate}")
+    logger.info(
+        f"AUDIO_LOAD: pydub loaded: duration={len(audio)}ms, channels={audio.channels}, frame_rate={audio.frame_rate}"
+    )
     audio = audio.set_frame_rate(22050).set_channels(1)
 
     # Export to WAV and load with soundfile
@@ -311,26 +349,31 @@ def _load_audio_from_bytes(audio_bytes: bytes) -> tuple[np.ndarray, int]:
 async def extract_segment_audio(
     audio_bytes: bytes,
     segment: AudioSegment,
+    storage: FileStorageService,
     output_dir: Optional[Path] = None,
 ) -> str:
     """
-    Extract audio for a specific segment and save to file.
+    Extract audio for a specific segment and store in R2.
 
     Returns:
-        Path to the extracted audio file
+        URL to the extracted audio file (presigned URL for immediate access)
     """
-    out_dir = Path(output_dir or settings.output_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-
     y, sr = _load_audio_from_bytes(audio_bytes)
 
     start_sample = int(segment.start_seconds * sr)
     end_sample = int(segment.end_seconds * sr)
     chunk = y[start_sample:end_sample]
 
-    filename = f"segment_{segment.id[:8]}.wav"
-    output_path = out_dir / filename
+    # Create temporary file for processing
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+        sf.write(tmp.name, chunk, sr)
+        tmp_path = Path(tmp.name)
 
-    sf.write(str(output_path), chunk, sr)
-
-    return str(output_path)
+    try:
+        # Store in R2 (background upload)
+        r2_key = f"segments/{segment.id}.wav"
+        url = await storage.put_file(tmp_path, r2_key, background=True)
+        return url
+    finally:
+        # Cleanup temp file
+        tmp_path.unlink(missing_ok=True)

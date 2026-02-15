@@ -146,7 +146,7 @@ voicebeat/
 │   │   ├── rhythm_analyzer.py     # Beat detection (librosa)
 │   │   ├── agent.py               # OpenAI orchestrator with tools
 │   │   ├── description_parser.py  # Instruction parsing (OpenAI)
-│   │   ├── sample_lookup.py       # Sample file mapping
+│   │   ├── sample_lookup.py       # Local sample file mapping (no R2)
 │   │   ├── track_assembler.py     # pydub audio assembly
 │   │   └── notation.py            # ABC notation builder
 │   └── utils/
@@ -155,12 +155,43 @@ voicebeat/
 ├── config/
 │   ├── settings.py                # Configuration
 │   └── .env.example               # Environment template
-├── samples/                        # Audio sample library
+├── samples/                        # Audio sample library (local only)
 ├── output/                         # Generated audio files
+├── cache/                          # R2 cache directory (auto-created)
 ├── scripts/
-│   └── generate_samples.py        # Create placeholder samples
+│   ├── generate_samples.py        # Create placeholder samples
+│   ├── build_catalog.py           # Build local sample catalog
+│   └── setup_r2.py                # Configure R2 for user content
 ├── tests/                          # Test suite
 └── requirements.txt
+```
+
+## Storage Architecture
+
+VoiceBeat uses a hybrid storage approach:
+
+### Local Storage (Always)
+- **Sample library**: `samples/` directory - never uses cloud storage
+- **Sample catalog**: `catalog/samples.json` - generated from local files
+- **Development output**: `output/` directory for local testing
+
+### Cloud Storage (Optional - R2)
+- **User recordings**: Speech segments from voice input
+- **Generated layers**: Individual instrument tracks  
+- **Mixed outputs**: Final project audio files
+- **Cache management**: Local cache with TTL for downloaded files
+
+### Configuration
+```bash
+# Required for R2 features (user content only)
+USE_R2_STORAGE=true
+R2_ACCOUNT_ID=your_account_id
+R2_ACCESS_KEY_ID=your_access_key
+R2_SECRET_ACCESS_KEY=your_secret_key
+R2_BUCKET_NAME=your_bucket_name
+
+# Sample files are always local regardless of R2 settings
+SAMPLES_DIR=./samples
 ```
 
 ## Tech Stack

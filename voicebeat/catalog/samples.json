@@ -1,0 +1,436 @@
+{
+  "electronic": {
+    "bass": [
+      {
+        "name": "bass_01.wav",
+        "local_path": "samples/electronic/bass/bass_01.wav"
+      }
+    ],
+    "clap": [
+      {
+        "name": "clap_01.wav",
+        "local_path": "samples/electronic/clap/clap_01.wav"
+      }
+    ],
+    "cymbal": [
+      {
+        "name": "cymbal_01.wav",
+        "local_path": "samples/electronic/cymbal/cymbal_01.wav"
+      }
+    ],
+    "guitar": [
+      {
+        "name": "guitar_01.wav",
+        "local_path": "samples/electronic/guitar/guitar_01.wav"
+      }
+    ],
+    "hi-hat": [
+      {
+        "name": "hi-hat_01.wav",
+        "local_path": "samples/electronic/hi-hat/hi-hat_01.wav"
+      }
+    ],
+    "kick": [
+      {
+        "name": "kick_01.wav",
+        "local_path": "samples/electronic/kick/kick_01.wav"
+      }
+    ],
+    "piano": [
+      {
+        "name": "piano_01.wav",
+        "local_path": "samples/electronic/piano/piano_01.wav"
+      }
+    ],
+    "snare": [
+      {
+        "name": "snare_01.wav",
+        "local_path": "samples/electronic/snare/snare_01.wav"
+      }
+    ],
+    "strings": [
+      {
+        "name": "strings_01.wav",
+        "local_path": "samples/electronic/strings/strings_01.wav"
+      }
+    ],
+    "synth": [
+      {
+        "name": "synth_01.wav",
+        "local_path": "samples/electronic/synth/synth_01.wav"
+      }
+    ]
+  },
+  "hip-hop": {
+    "bass": [
+      {
+        "name": "bass_01.wav",
+        "local_path": "samples/hip-hop/bass/bass_01.wav"
+      }
+    ],
+    "clap": [
+      {
+        "name": "clap_01.wav",
+        "local_path": "samples/hip-hop/clap/clap_01.wav"
+      }
+    ],
+    "cymbal": [
+      {
+        "name": "cymbal_01.wav",
+        "local_path": "samples/hip-hop/cymbal/cymbal_01.wav"
+      }
+    ],
+    "guitar": [
+      {
+        "name": "guitar_01.wav",
+        "local_path": "samples/hip-hop/guitar/guitar_01.wav"
+      }
+    ],
+    "hi-hat": [
+      {
+        "name": "hi-hat_01.wav",
+        "local_path": "samples/hip-hop/hi-hat/hi-hat_01.wav"
+      }
+    ],
+    "kick": [
+      {
+        "name": "kick_01.wav",
+        "local_path": "samples/hip-hop/kick/kick_01.wav"
+      }
+    ],
+    "piano": [
+      {
+        "name": "piano_01.wav",
+        "local_path": "samples/hip-hop/piano/piano_01.wav"
+      }
+    ],
+    "snare": [
+      {
+        "name": "snare_01.wav",
+        "local_path": "samples/hip-hop/snare/snare_01.wav"
+      }
+    ],
+    "strings": [
+      {
+        "name": "strings_01.wav",
+        "local_path": "samples/hip-hop/strings/strings_01.wav"
+      }
+    ],
+    "synth": [
+      {
+        "name": "synth_01.wav",
+        "local_path": "samples/hip-hop/synth/synth_01.wav"
+      }
+    ]
+  },
+  "jazz": {
+    "bass": [
+      {
+        "name": "bass_01.wav",
+        "local_path": "samples/jazz/bass/bass_01.wav"
+      }
+    ],
+    "clap": [
+      {
+        "name": "clap_01.wav",
+        "local_path": "samples/jazz/clap/clap_01.wav"
+      }
+    ],
+    "cymbal": [
+      {
+        "name": "cymbal_01.wav",
+        "local_path": "samples/jazz/cymbal/cymbal_01.wav"
+      }
+    ],
+    "guitar": [
+      {
+        "name": "guitar_01.wav",
+        "local_path": "samples/jazz/guitar/guitar_01.wav"
+      }
+    ],
+    "hi-hat": [
+      {
+        "name": "hi-hat_01.wav",
+        "local_path": "samples/jazz/hi-hat/hi-hat_01.wav"
+      }
+    ],
+    "kick": [
+      {
+        "name": "kick_01.wav",
+        "local_path": "samples/jazz/kick/kick_01.wav"
+      }
+    ],
+    "piano": [
+      {
+        "name": "piano_01.wav",
+        "local_path": "samples/jazz/piano/piano_01.wav"
+      }
+    ],
+    "snare": [
+      {
+        "name": "snare_01.wav",
+        "local_path": "samples/jazz/snare/snare_01.wav"
+      }
+    ],
+    "strings": [
+      {
+        "name": "strings_01.wav",
+        "local_path": "samples/jazz/strings/strings_01.wav"
+      }
+    ],
+    "synth": [
+      {
+        "name": "synth_01.wav",
+        "local_path": "samples/jazz/synth/synth_01.wav"
+      }
+    ]
+  },
+  "lo-fi": {
+    "bass": [
+      {
+        "name": "bass_01.wav",
+        "local_path": "samples/lo-fi/bass/bass_01.wav"
+      }
+    ],
+    "clap": [
+      {
+        "name": "clap_01.wav",
+        "local_path": "samples/lo-fi/clap/clap_01.wav"
+      }
+    ],
+    "cymbal": [
+      {
+        "name": "cymbal_01.wav",
+        "local_path": "samples/lo-fi/cymbal/cymbal_01.wav"
+      }
+    ],
+    "guitar": [
+      {
+        "name": "guitar_01.wav",
+        "local_path": "samples/lo-fi/guitar/guitar_01.wav"
+      }
+    ],
+    "hi-hat": [
+      {
+        "name": "hi-hat_01.wav",
+        "local_path": "samples/lo-fi/hi-hat/hi-hat_01.wav"
+      }
+    ],
+    "kick": [
+      {
+        "name": "kick_01.wav",
+        "local_path": "samples/lo-fi/kick/kick_01.wav"
+      }
+    ],
+    "piano": [
+      {
+        "name": "piano_01.wav",
+        "local_path": "samples/lo-fi/piano/piano_01.wav"
+      }
+    ],
+    "snare": [
+      {
+        "name": "snare_01.wav",
+        "local_path": "samples/lo-fi/snare/snare_01.wav"
+      }
+    ],
+    "strings": [
+      {
+        "name": "strings_01.wav",
+        "local_path": "samples/lo-fi/strings/strings_01.wav"
+      }
+    ],
+    "synth": [
+      {
+        "name": "synth_01.wav",
+        "local_path": "samples/lo-fi/synth/synth_01.wav"
+      }
+    ]
+  },
+  "pop": {
+    "bass": [
+      {
+        "name": "bass_01.wav",
+        "local_path": "samples/pop/bass/bass_01.wav"
+      }
+    ],
+    "clap": [
+      {
+        "name": "clap_01.wav",
+        "local_path": "samples/pop/clap/clap_01.wav"
+      }
+    ],
+    "cymbal": [
+      {
+        "name": "cymbal_01.wav",
+        "local_path": "samples/pop/cymbal/cymbal_01.wav"
+      }
+    ],
+    "guitar": [
+      {
+        "name": "guitar_01.wav",
+        "local_path": "samples/pop/guitar/guitar_01.wav"
+      }
+    ],
+    "hi-hat": [
+      {
+        "name": "hi-hat_01.wav",
+        "local_path": "samples/pop/hi-hat/hi-hat_01.wav"
+      }
+    ],
+    "kick": [
+      {
+        "name": "kick_01.wav",
+        "local_path": "samples/pop/kick/kick_01.wav"
+      }
+    ],
+    "piano": [
+      {
+        "name": "piano_01.wav",
+        "local_path": "samples/pop/piano/piano_01.wav"
+      }
+    ],
+    "snare": [
+      {
+        "name": "snare_01.wav",
+        "local_path": "samples/pop/snare/snare_01.wav"
+      }
+    ],
+    "strings": [
+      {
+        "name": "strings_01.wav",
+        "local_path": "samples/pop/strings/strings_01.wav"
+      }
+    ],
+    "synth": [
+      {
+        "name": "synth_01.wav",
+        "local_path": "samples/pop/synth/synth_01.wav"
+      }
+    ]
+  },
+  "rnb": {
+    "bass": [
+      {
+        "name": "bass_01.wav",
+        "local_path": "samples/rnb/bass/bass_01.wav"
+      }
+    ],
+    "clap": [
+      {
+        "name": "clap_01.wav",
+        "local_path": "samples/rnb/clap/clap_01.wav"
+      }
+    ],
+    "cymbal": [
+      {
+        "name": "cymbal_01.wav",
+        "local_path": "samples/rnb/cymbal/cymbal_01.wav"
+      }
+    ],
+    "guitar": [
+      {
+        "name": "guitar_01.wav",
+        "local_path": "samples/rnb/guitar/guitar_01.wav"
+      }
+    ],
+    "hi-hat": [
+      {
+        "name": "hi-hat_01.wav",
+        "local_path": "samples/rnb/hi-hat/hi-hat_01.wav"
+      }
+    ],
+    "kick": [
+      {
+        "name": "kick_01.wav",
+        "local_path": "samples/rnb/kick/kick_01.wav"
+      }
+    ],
+    "piano": [
+      {
+        "name": "piano_01.wav",
+        "local_path": "samples/rnb/piano/piano_01.wav"
+      }
+    ],
+    "snare": [
+      {
+        "name": "snare_01.wav",
+        "local_path": "samples/rnb/snare/snare_01.wav"
+      }
+    ],
+    "strings": [
+      {
+        "name": "strings_01.wav",
+        "local_path": "samples/rnb/strings/strings_01.wav"
+      }
+    ],
+    "synth": [
+      {
+        "name": "synth_01.wav",
+        "local_path": "samples/rnb/synth/synth_01.wav"
+      }
+    ]
+  },
+  "rock": {
+    "bass": [
+      {
+        "name": "bass_01.wav",
+        "local_path": "samples/rock/bass/bass_01.wav"
+      }
+    ],
+    "clap": [
+      {
+        "name": "clap_01.wav",
+        "local_path": "samples/rock/clap/clap_01.wav"
+      }
+    ],
+    "cymbal": [
+      {
+        "name": "cymbal_01.wav",
+        "local_path": "samples/rock/cymbal/cymbal_01.wav"
+      }
+    ],
+    "guitar": [
+      {
+        "name": "guitar_01.wav",
+        "local_path": "samples/rock/guitar/guitar_01.wav"
+      }
+    ],
+    "hi-hat": [
+      {
+        "name": "hi-hat_01.wav",
+        "local_path": "samples/rock/hi-hat/hi-hat_01.wav"
+      }
+    ],
+    "kick": [
+      {
+        "name": "kick_01.wav",
+        "local_path": "samples/rock/kick/kick_01.wav"
+      }
+    ],
+    "piano": [
+      {
+        "name": "piano_01.wav",
+        "local_path": "samples/rock/piano/piano_01.wav"
+      }
+    ],
+    "snare": [
+      {
+        "name": "snare_01.wav",
+        "local_path": "samples/rock/snare/snare_01.wav"
+      }
+    ],
+    "strings": [
+      {
+        "name": "strings_01.wav",
+        "local_path": "samples/rock/strings/strings_01.wav"
+      }
+    ],
+    "synth": [
+      {
+        "name": "synth_01.wav",
+        "local_path": "samples/rock/synth/synth_01.wav"
+      }
+    ]
+  }
+}

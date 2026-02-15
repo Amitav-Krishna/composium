@@ -5,44 +5,46 @@ The main endpoint is /api/v1/process which accepts a single recording
 containing both speech (instructions) and music (humming/beatboxing).
 """
 
-import uuid
 import logging
-from pathlib import Path
-from datetime import datetime
-from fastapi import APIRouter, File, Form, UploadFile, HTTPException
-from fastapi.responses import FileResponse, Response
 import sys
+import uuid
+from datetime import datetime
+from pathlib import Path
+
+from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse, Response
+
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 logger = logging.getLogger(__name__)
 
 from config.settings import settings
+
 from app.models.schemas import (
     DescribeResponse,
-    RhythmResponse,
-    Project,
-    Layer,
-    ProjectCreateRequest,
-    SpeakRequest,
     HealthResponse,
-    SampleCatalogResponse,
-    ProcessResponse,
-    SegmentType,
+    Layer,
     MusicDescription,
+    ProcessResponse,
+    Project,
+    ProjectCreateRequest,
+    RhythmResponse,
+    SampleCatalogResponse,
+    SegmentType,
+    SpeakRequest,
 )
 from app.services import (
-    transcription,
-    tts,
+    agent,
     description_parser,
     rhythm_analyzer,
     sample_lookup,
-    track_assembler,
     segmenter,
-    agent,
+    track_assembler,
+    transcription,
+    tts,
     visualizer,
 )
-from app.utils.audio import get_content_type, validate_audio_file, read_upload_file
-
+from app.utils.audio import get_content_type, read_upload_file, validate_audio_file
 
 router = APIRouter()
 
@@ -58,6 +60,7 @@ async def health_check():
 
 @router.post("/api/v1/process", response_model=ProcessResponse)
 async def process_recording(
+    request: Request,
     audio: UploadFile = File(...),
     project_name: str = "New Project",
 ):
@@ -87,7 +90,9 @@ async def process_recording(
 
     audio_bytes = await read_upload_file(audio)
     content_type = get_content_type(audio.filename or "audio.wav")
-    logger.info(f"PROCESS: Read {len(audio_bytes)} bytes, determined content_type={content_type}")
+    logger.info(
+        f"PROCESS: Read {len(audio_bytes)} bytes, determined content_type={content_type}"
+    )
 
     # Step 1: Segment the recording
     logger.info("PROCESS: Step 1 - Segmenting recording...")
@@ -101,21 +106,34 @@ async def process_recording(
 
     # Step 2: Extract audio for each segment
     logger.info("PROCESS: Step 2 - Extracting audio for each segment...")
+    storage = request.app.state.storage
     segment_audio_data: dict[str, bytes] = {}
     for seg in segments:
-        seg_audio_path = await segmenter.extract_segment_audio(audio_bytes, seg)
-        with open(seg_audio_path, "rb") as f:
-            segment_audio_data[seg.id] = f.read()
-        seg.audio_file = seg_audio_path
-        logger.info(f"PROCESS: Extracted segment {seg.id[:8]} ({seg.type.value}) -> {seg_audio_path} ({len(segment_audio_data[seg.id])} bytes)")
+        seg_audio_url = await segmenter.extract_segment_audio(audio_bytes, seg, storage)
+        # For processing, we need the raw bytes - get from cache
+        try:
+            r2_key = f"segments/{seg.id}.wav"
+            cached_path = await storage.get_file(r2_key)
+            with open(cached_path, "rb") as f:
+                segment_audio_data[seg.id] = f.read()
+        except Exception as e:
+            logger.error(f"Failed to read segment audio: {e}")
+            continue
+        seg.audio_file = seg_audio_url
+        logger.info(
+            f"PROCESS: Extracted segment {seg.id[:8]} ({seg.type.value}) -> {seg_audio_url} ({len(segment_audio_data[seg.id])} bytes)"
+        )
 
     # Step 3: Get speech transcripts for instructions
     logger.info("PROCESS: Step 3 - Extracting speech transcripts...")
     speech_transcripts = [
-        seg.transcript for seg in segments
+        seg.transcript
+        for seg in segments
         if seg.type == SegmentType.SPEECH and seg.transcript
     ]
-    logger.info(f"PROCESS: Found {len(speech_transcripts)} speech transcripts: {speech_transcripts}")
+    logger.info(
+        f"PROCESS: Found {len(speech_transcripts)} speech transcripts: {speech_transcripts}"
+    )
 
     # Create project
     project_id = str(uuid.uuid4())
@@ -133,7 +151,9 @@ async def process_recording(
         project.description = description
         if description.tempo_bpm:
             project.bpm = description.tempo_bpm
-        logger.info(f"PROCESS: Parsed description: genre={description.genre}, tempo={description.tempo_bpm}, instruments={description.instruments}")
+        logger.info(
+            f"PROCESS: Parsed description: genre={description.genre}, tempo={description.tempo_bpm}, instruments={description.instruments}"
+        )
     else:
         logger.info("PROCESS: Step 4 - No speech instructions to parse")
 
@@ -152,7 +172,7 @@ async def process_recording(
     if project.layers:
         logger.info("PROCESS: Step 6 - Mixing layers...")
         try:
-            project.mixed_file = track_assembler.mix_project(project)
+            project.mixed_file = await track_assembler.mix_project(project, storage)
             logger.info(f"PROCESS: Mixed file: {project.mixed_file}")
         except ValueError as e:
             logger.warning(f"PROCESS: Mix failed: {e}")
@@ -316,7 +336,8 @@ async def add_layer(
 
     # Get speech transcripts
     speech_transcripts = [
-        seg.transcript for seg in segments
+        seg.transcript
+        for seg in segments
         if seg.type == SegmentType.SPEECH and seg.transcript
     ]
 
@@ -373,7 +394,9 @@ async def refine_project(
     logger.info("=" * 80)
     logger.info(f"REFINE: Project {project_id}")
     logger.info(f"REFINE: Instructions: {instructions}")
-    logger.info(f"REFINE: Audio provided: {audio is not None and audio.filename is not None}")
+    logger.info(
+        f"REFINE: Audio provided: {audio is not None and audio.filename is not None}"
+    )
 
     if project_id not in projects:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -384,7 +407,11 @@ async def refine_project(
 
     # If audio is provided, segment and analyze it
     if audio and audio.filename:
-        from app.utils.audio import get_content_type, validate_audio_file, read_upload_file
+        from app.utils.audio import (
+            get_content_type,
+            read_upload_file,
+            validate_audio_file,
+        )
 
         if not await validate_audio_file(audio):
             raise HTTPException(status_code=400, detail="Invalid audio file format")
@@ -406,7 +433,8 @@ async def refine_project(
 
         # Collect speech transcripts and append to instructions
         speech_transcripts = [
-            seg.transcript for seg in segments
+            seg.transcript
+            for seg in segments
             if seg.type == SegmentType.SPEECH and seg.transcript
         ]
         if speech_transcripts:
@@ -445,8 +473,8 @@ async def refine_project(
     )
 
 
-@router.get("/api/v1/projects/{project_id}/mix")
-async def mix_project_endpoint(project_id: str):
+@router.post("/api/v1/projects/{project_id}/mix")
+async def mix_project_endpoint(request: Request, project_id: str):
     """
     Mix all layers in a project into a final MP3.
 
@@ -461,17 +489,25 @@ async def mix_project_endpoint(project_id: str):
         raise HTTPException(status_code=400, detail="Project has no layers to mix")
 
     try:
-        output_path = track_assembler.mix_project(project)
-        project.mixed_file = output_path
+        storage = request.app.state.storage
+        output_url = await track_assembler.mix_project(project, storage)
+        project.mixed_file = output_url
         project.updated_at = datetime.now()
+
+        # For file response, we need to get the actual file path from cache
+        r2_key = (
+            output_url.split("/")[-1] if output_url.startswith("http") else output_url
+        )
+        cached_path = await storage.get_file(r2_key)
+
+        return FileResponse(
+            path=str(cached_path),
+            media_type="audio/mpeg",
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-
-    return FileResponse(
-        path=output_path,
-        media_type="audio/mpeg",
-        filename=Path(output_path).name,
-    )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to mix project: {str(e)}")
 
 
 @router.post("/api/v1/speak")
@@ -493,8 +529,8 @@ async def speak(request: SpeakRequest):
     )
 
 
-@router.get("/samples/catalog", response_model=SampleCatalogResponse)
-async def get_sample_catalog():
+@router.get("/api/v1/samples", response_model=SampleCatalogResponse)
+async def get_sample_catalog(request: Request):
     """List all available samples in the library."""
     catalog = sample_lookup.get_sample_catalog()
     return SampleCatalogResponse(**catalog)
@@ -504,6 +540,7 @@ async def get_sample_catalog():
 async def get_logs(since: int = 0):
     """Get recent logs. 'since' = index to start from (for polling)."""
     from app.main import log_buffer
+
     logs = log_buffer.get_logs()
     return {"logs": logs[since:], "total": len(logs)}
 

@@ -1,15 +1,22 @@
+import sys
+import tempfile
 import uuid
 from pathlib import Path
+
 from pydub import AudioSegment
-import sys
+
 sys.path.insert(0, str(__file__).rsplit("/", 4)[0])
+
 from config.settings import settings
-from app.models.schemas import RhythmPattern, Project
+
+from app.models.schemas import Project, RhythmPattern
+from app.services.file_storage import FileStorageService
 
 
-def render_layer(
+async def render_layer(
     rhythm: RhythmPattern,
     sample_mapping: dict[str, str],
+    storage: FileStorageService,
     bpm: int | None = None,
     output_dir: Path | None = None,
 ) -> str:
@@ -29,8 +36,6 @@ def render_layer(
         Path to the rendered WAV file
     """
     bpm = bpm or rhythm.bpm
-    out_dir = Path(output_dir or settings.output_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
 
     # Calculate timing
     seconds_per_beat = 60.0 / bpm
@@ -41,11 +46,26 @@ def render_layer(
     total_subdivisions = rhythm.bars * rhythm.subdivisions
     total_ms = int(total_subdivisions * ms_per_subdivision)
 
+    # Get all required sample files from cache/R2
+    sample_cache: dict[str, AudioSegment] = {}
+    for beat in rhythm.beats:
+        instrument_name = beat.instrument.value
+        if (
+            instrument_name in sample_mapping
+            and sample_mapping[instrument_name] not in sample_cache
+        ):
+            try:
+                # sample_mapping now contains local file paths for samples
+                file_path = Path(sample_mapping[instrument_name])
+                if file_path.exists():
+                    sample_cache[sample_mapping[instrument_name]] = (
+                        AudioSegment.from_file(str(file_path))
+                    )
+            except Exception:
+                continue
+
     # Create silent base track
     output = AudioSegment.silent(duration=total_ms)
-
-    # Load samples (cache to avoid reloading)
-    sample_cache: dict[str, AudioSegment] = {}
 
     for beat in rhythm.beats:
         instrument_name = beat.instrument.value
@@ -55,12 +75,8 @@ def render_layer(
 
         sample_path = sample_mapping[instrument_name]
 
-        # Load sample if not cached
         if sample_path not in sample_cache:
-            try:
-                sample_cache[sample_path] = AudioSegment.from_file(sample_path)
-            except Exception:
-                continue
+            continue
 
         sample = sample_cache[sample_path]
 
@@ -78,18 +94,23 @@ def render_layer(
         if position_ms < len(output):
             output = output.overlay(sample, position=position_ms)
 
-    # Generate unique filename
-    filename = f"layer_{uuid.uuid4().hex[:8]}.wav"
-    output_path = out_dir / filename
+    # Save to temp file
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+        output.export(tmp.name, format="wav")
+        tmp_path = Path(tmp.name)
 
-    # Export as WAV
-    output.export(str(output_path), format="wav")
+    try:
+        # Upload to R2
+        r2_key = f"layers/{uuid.uuid4().hex[:8]}.wav"
+        url = await storage.put_file(tmp_path, r2_key, background=True)
+        return url
+    finally:
+        tmp_path.unlink(missing_ok=True)
 
-    return str(output_path)
 
-
-def mix_project(
+async def mix_project(
     project: Project,
+    storage: FileStorageService,
     output_dir: Path | None = None,
 ) -> str:
     """
@@ -102,20 +123,25 @@ def mix_project(
     Returns:
         Path to the mixed MP3 file
     """
-    out_dir = Path(output_dir or settings.output_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-
     if not project.layers:
         raise ValueError("Project has no layers to mix")
 
-    # Load all layer audio files with their bar offsets
+    # Load all layer audio files from cache/R2 with their bar offsets
     layers_with_offset: list[tuple[AudioSegment, int]] = []
     max_duration = 0
 
     for layer in project.layers:
         if layer.audio_file:
             try:
-                audio = AudioSegment.from_file(layer.audio_file)
+                # Get file from cache or download from R2
+                if layer.audio_file.startswith("http"):
+                    # Extract R2 key from URL (simplified)
+                    r2_key = layer.audio_file.split("/")[-1]
+                else:
+                    r2_key = layer.audio_file
+
+                file_path = await storage.get_file(r2_key)
+                audio = AudioSegment.from_file(str(file_path))
                 # Convert start_bar to milliseconds offset
                 # 4 beats per bar (4/4 time), seconds_per_beat = 60/bpm
                 offset_ms = int(layer.start_bar * 4 * (60.0 / project.bpm) * 1000)
@@ -144,15 +170,19 @@ def mix_project(
     change_in_dbfs = target_dbfs - mixed.dBFS
     mixed = mixed.apply_gain(change_in_dbfs)
 
-    # Generate output filename
+    # Save to temp file
     safe_name = "".join(c if c.isalnum() or c in "-_" else "_" for c in project.name)
-    filename = f"{safe_name}_{project.id[:8]}.mp3"
-    output_path = out_dir / filename
+    with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
+        mixed.export(tmp.name, format="mp3")
+        tmp_path = Path(tmp.name)
 
-    # Export as MP3
-    mixed.export(str(output_path), format="mp3")
-
-    return str(output_path)
+    try:
+        # Upload to R2
+        r2_key = f"projects/{safe_name}_{project.id[:8]}.mp3"
+        url = await storage.put_file(tmp_path, r2_key, background=True)
+        return url
+    finally:
+        tmp_path.unlink(missing_ok=True)
 
 
 def create_empty_layer_audio(

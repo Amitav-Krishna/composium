@@ -1,14 +1,20 @@
+import asyncio
 import collections
 import logging
+import sys
+from pathlib import Path
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
-from pathlib import Path
-import sys
+from fastapi.staticfiles import StaticFiles
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from app.api.routes import router
 from config.settings import settings
+
+from app.api.routes import router
+from app.services.file_storage import FileStorageService
+from app.services.sample_lookup import SampleLookup
 
 
 class MemoryLogHandler(logging.Handler):
@@ -31,16 +37,23 @@ class MemoryLogHandler(logging.Handler):
 # Configure logging to show all our debug info
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s | %(name)s | %(message)s',
-    datefmt='%H:%M:%S'
+    format="%(asctime)s | %(name)s | %(message)s",
+    datefmt="%H:%M:%S",
 )
 # Set our app modules to INFO level
-for module in ['app.api.routes', 'app.services.segmenter', 'app.services.transcription', 'app.services.agent']:
+for module in [
+    "app.api.routes",
+    "app.services.segmenter",
+    "app.services.transcription",
+    "app.services.agent",
+]:
     logging.getLogger(module).setLevel(logging.INFO)
 
 # Add in-memory log buffer for the log viewer
 log_buffer = MemoryLogHandler(capacity=500)
-log_buffer.setFormatter(logging.Formatter('%(asctime)s | %(name)s | %(message)s', datefmt='%H:%M:%S'))
+log_buffer.setFormatter(
+    logging.Formatter("%(asctime)s | %(name)s | %(message)s", datefmt="%H:%M:%S")
+)
 logging.getLogger().addHandler(log_buffer)
 
 
@@ -96,11 +109,52 @@ async def startup_event():
         logging.error("  OPENAI_API_KEY=sk-xxxxx")
         logging.error("=" * 60)
 
-    # Ensure output directory exists
+    # Validate R2 configuration if R2 storage is enabled
+    if settings.use_r2_storage:
+        if not all(
+            [
+                settings.r2_account_id,
+                settings.r2_access_key_id,
+                settings.r2_secret_access_key,
+            ]
+        ):
+            logging.warning("=" * 60)
+            logging.warning("R2 STORAGE ENABLED BUT MISSING CONFIGURATION!")
+            logging.warning("Please add to your .env file:")
+            logging.warning("  R2_ACCOUNT_ID=your_account_id")
+            logging.warning("  R2_ACCESS_KEY_ID=your_access_key")
+            logging.warning("  R2_SECRET_ACCESS_KEY=your_secret_key")
+            logging.warning("Falling back to local storage...")
+            logging.warning("=" * 60)
+            settings.use_r2_storage = False
+
+    # Initialize file storage
+    app.state.storage = FileStorageService(
+        cache_dir=settings.cache_dir, cache_ttl_hours=settings.cache_ttl_hours
+    )
+    if settings.use_r2_storage:
+        await app.state.storage.start_background_uploader()
+
+    # Initialize sample lookup
+    app.state.samples = SampleLookup()
+    app.state.samples.initialize()
+
+    # Start cache cleanup task
+    asyncio.create_task(periodic_cache_cleanup())
+
+    # Ensure output directory exists (for fallback)
     settings.output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Ensure samples directory exists
+    # Ensure samples directory exists (for local fallback)
     settings.samples_dir.mkdir(parents=True, exist_ok=True)
+
+
+async def periodic_cache_cleanup():
+    """Clean cache every hour"""
+    while True:
+        await asyncio.sleep(3600)  # 1 hour
+        if hasattr(app.state, "storage"):
+            app.state.storage.cleanup_cache()
 
 
 @app.on_event("shutdown")
@@ -111,4 +165,5 @@ async def shutdown_event():
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=8000)

@@ -7,19 +7,21 @@ renderer with Composium's ABC -> abc2midi -> timidity -> ffmpeg chain.
 """
 
 import asyncio
-import uuid
 import logging
-from pathlib import Path
 import sys
+import tempfile
+import uuid
+from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent.parent))
 
-from composium.notation import Note, Voice, Score, Analysis
 from composium.compose import compose
+from composium.notation import Analysis, Note, Score, Voice
 from composium.render import render
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 from config.settings import settings
+
 from app.models.schemas import MelodyContour, RhythmPattern
 
 logger = logging.getLogger(__name__)
@@ -29,11 +31,11 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 _INSTRUMENT_MAP: dict[str, list[str]] = {
-    "piano":   ["piano"],
-    "guitar":  ["guitar"],
-    "strings": ["piano"],       # closest GM match
-    "synth":   ["edm"],         # EDM has synth bass + pads
-    "bass":    ["piano"],       # piano includes Alberti bass voice
+    "piano": ["piano"],
+    "guitar": ["guitar"],
+    "strings": ["piano"],  # closest GM match
+    "synth": ["edm"],  # EDM has synth bass + pads
+    "bass": ["piano"],  # piano includes Alberti bass voice
 }
 
 # ---------------------------------------------------------------------------
@@ -62,6 +64,7 @@ def _parse_key(key_signature: str | None) -> str:
 # ---------------------------------------------------------------------------
 # 1c. melody_to_analysis
 # ---------------------------------------------------------------------------
+
 
 def melody_to_analysis(
     melody: MelodyContour,
@@ -99,6 +102,7 @@ def melody_to_analysis(
 # 1d. rhythm_to_score
 # ---------------------------------------------------------------------------
 
+
 def rhythm_to_score(
     rhythm: RhythmPattern,
     bpm: int,
@@ -112,11 +116,13 @@ def rhythm_to_score(
         if midi_pitch is None:
             continue
         start_beat = beat.bar * 4 + beat.position * 0.25
-        notes.append(Note(
-            midi_pitch=midi_pitch,
-            start_beat=start_beat,
-            duration_beats=0.25,
-        ))
+        notes.append(
+            Note(
+                midi_pitch=midi_pitch,
+                start_beat=start_beat,
+                duration_beats=0.25,
+            )
+        )
 
     drum_voice = Voice(
         notes=notes,
@@ -143,6 +149,7 @@ def rhythm_to_score(
 # 1e. render_melody  (replaces _render_melody_audio)
 # ---------------------------------------------------------------------------
 
+
 async def render_melody(
     melody: MelodyContour,
     instrument: str,
@@ -157,30 +164,60 @@ async def render_melody(
     analysis = melody_to_analysis(melody, bpm, key)
     instruments = _INSTRUMENT_MAP.get(instrument, ["piano"])
 
-    logger.info(f"composium_bridge: rendering melody instrument={instrument} -> {instruments}")
+    logger.info(
+        f"composium_bridge: rendering melody instrument={instrument} -> {instruments}"
+    )
 
     score = await asyncio.to_thread(compose, analysis, instruments)
-    await asyncio.to_thread(render, score, output_path)
-    return output_path
+
+    # Create temporary file for rendering
+    with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
+        tmp_path = Path(tmp.name)
+
+    try:
+        await asyncio.to_thread(render, score, str(tmp_path))
+
+        # Upload to R2 if storage service is available
+        from app.services.file_storage import FileStorageService
+
+        storage = FileStorageService()
+        r2_key = f"melodies/{uuid.uuid4().hex[:8]}.mp3"
+        url = await storage.put_file(tmp_path, r2_key, background=True)
+        return url
+    finally:
+        tmp_path.unlink(missing_ok=True)
 
 
 # ---------------------------------------------------------------------------
 # 1f. render_rhythm  (replaces track_assembler.render_layer)
 # ---------------------------------------------------------------------------
 
+
 async def render_rhythm(
     rhythm: RhythmPattern,
     bpm: int,
     key: str | None = None,
 ) -> str:
-    """Render a rhythm pattern via Composium's MIDI pipeline. Returns path to MP3."""
-    output_dir = Path(settings.output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-    output_path = str(output_dir / f"rhythm_{uuid.uuid4().hex[:8]}.mp3")
-
+    """Render a rhythm pattern via Composium's MIDI pipeline. Returns URL to MP3."""
     score = rhythm_to_score(rhythm, bpm, key)
 
-    logger.info(f"composium_bridge: rendering rhythm ({len(rhythm.beats)} beats, {bpm} BPM)")
+    logger.info(
+        f"composium_bridge: rendering rhythm ({len(rhythm.beats)} beats, {bpm} BPM)"
+    )
 
-    await asyncio.to_thread(render, score, output_path)
-    return output_path
+    # Create temporary file for rendering
+    with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
+        tmp_path = Path(tmp.name)
+
+    try:
+        await asyncio.to_thread(render, score, str(tmp_path))
+
+        # Upload to R2 if storage service is available
+        from app.services.file_storage import FileStorageService
+
+        storage = FileStorageService()
+        r2_key = f"rhythms/{uuid.uuid4().hex[:8]}.mp3"
+        url = await storage.put_file(tmp_path, r2_key, background=True)
+        return url
+    finally:
+        tmp_path.unlink(missing_ok=True)

@@ -29,7 +29,19 @@ class Settings(BaseSettings):
     r2_access_key_id: str = ""
     r2_secret_access_key: str = ""
     r2_public_url: str = ""
-    r2_bucket_name: str = ""
+    r2_bucket_name: str = "voicebeat-audio"
+
+    # Cache Configuration
+    cache_dir: str = "cache"
+    cache_ttl_hours: int = 24
+
+    # Feature Flags
+    use_r2_storage: bool = True  # For user-generated content only (projects, segments)
+    fallback_to_local: bool = True  # For development
+
+    # Sample files are ALWAYS local - R2 is only used for user-generated content
+    # This includes: project audio, segment recordings, mixed outputs
+    # Sample library files are accessed directly from the local samples_dir
 
     class Config:
         env_file = str(ENV_FILE)
