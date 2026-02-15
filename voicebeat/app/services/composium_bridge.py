@@ -1,5 +1,5 @@
 """
-Composium Bridge — adapts VoiceBeat data structures to Composium's
+Composium Bridge — adapts VibeBeat data structures to Composium's
 MIDI rendering pipeline.
 
 Replaces the old sine-wave melody renderer and sample-based rhythm
@@ -25,7 +25,7 @@ from app.models.schemas import MelodyContour, RhythmPattern
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# 1a. Instrument mapping: VoiceBeat instrument name -> Composium instrument list
+# 1a. Instrument mapping: VibeBeat instrument name -> Composium instrument list
 # ---------------------------------------------------------------------------
 
 _INSTRUMENT_MAP: dict[str, list[str]] = {
@@ -37,7 +37,7 @@ _INSTRUMENT_MAP: dict[str, list[str]] = {
 }
 
 # ---------------------------------------------------------------------------
-# 1b. Percussion mapping: VoiceBeat instrument name -> GM MIDI note
+# 1b. Percussion mapping: VibeBeat instrument name -> GM MIDI note
 # ---------------------------------------------------------------------------
 
 _PERC_MAP: dict[str, int] = {
@@ -50,7 +50,7 @@ _PERC_MAP: dict[str, int] = {
 
 
 def _parse_key(key_signature: str | None) -> str:
-    """Parse VoiceBeat key string (e.g. 'C major', 'A minor') to Composium key (e.g. 'C', 'Am')."""
+    """Parse VibeBeat key string (e.g. 'C major', 'A minor') to Composium key (e.g. 'C', 'Am')."""
     if not key_signature:
         return "C"
     parts = key_signature.strip().split()
@@ -68,7 +68,7 @@ def melody_to_analysis(
     bpm: int,
     key: str | None = None,
 ) -> Analysis:
-    """Convert a VoiceBeat MelodyContour to a Composium Analysis."""
+    """Convert a VibeBeat MelodyContour to a Composium Analysis."""
     spb = 60.0 / bpm
     notes = [
         Note(
@@ -104,7 +104,7 @@ def rhythm_to_score(
     bpm: int,
     key: str | None = None,
 ) -> Score:
-    """Convert a VoiceBeat RhythmPattern to a Composium Score with a drum Voice on channel 10."""
+    """Convert a VibeBeat RhythmPattern to a Composium Score with a drum Voice on channel 10."""
     notes: list[Note] = []
     for beat in rhythm.beats:
         inst_name = beat.instrument.value

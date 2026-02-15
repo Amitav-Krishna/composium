@@ -56,6 +56,7 @@ OPENROUTER_API_KEY=sk-or-...
 Start the server:
 
 ```bash
+cd voicebeat
 uvicorn app.main:app --reload
 ```
 

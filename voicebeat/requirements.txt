@@ -14,3 +14,6 @@ aiofiles==24.1.0
 uuid6==2024.7.10
 midiutil==1.2.1
 pytest==8.3.0
+rvc-python
+torch
+torchaudio

@@ -84,6 +84,10 @@ TOOL_DESIGN_RHYTHM = {
                                 "type": "integer",
                                 "description": "Position on 16th-note grid (0-15) within the bar",
                             },
+                            "duration_beats": {
+                                "type": "number",
+                                "description": "Duration in quarter-note beats (0.25=16th, 0.5=8th, 1=quarter). Defaults to time until next word.",
+                            },
                         },
                         "required": ["word", "bar", "beat_position"],
                     },
@@ -189,7 +193,9 @@ Then call render_vocal to produce the audio. Then call done.
 - Pack syllables tightly for fast flow, space them for emphasis
 - Leave position 0 of bar 0 for a strong opening word
 - End phrases before the next bar for breathing room
-- Rhyming words should land on similar beat positions for rhythmic consistency"""
+- Rhyming words should land on similar beat positions for rhythmic consistency
+- Use duration_beats to control word length: 0.25=16th note (fast/clipped), 0.5=8th note, 1=quarter note (sustained)
+- Omit duration_beats to let the word fill the gap until the next word automatically"""
 
     def get_tools(self) -> list[dict]:
         if self.mode == "melodic":

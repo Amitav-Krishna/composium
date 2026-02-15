@@ -45,7 +45,7 @@ logging.getLogger().addHandler(log_buffer)
 
 
 app = FastAPI(
-    title="VoiceBeat API",
+    title="VibeBeat API",
     description="Voice-driven music creation tool",
     version="0.1.0",
 )
@@ -74,19 +74,19 @@ async def root():
     index_file = static_dir / "index.html"
     if index_file.exists():
         return FileResponse(str(index_file))
-    return {"message": "VoiceBeat API - visit /docs for API documentation"}
+    return {"message": "VibeBeat API - visit /docs for API documentation"}
 
 
 @app.on_event("startup")
 async def startup_event():
     """Initialize on startup."""
     # Validate required API keys
-    if not settings.smallest_api_key:
+    if not settings.elevenlabs_api_key:
         logging.error("=" * 60)
-        logging.error("MISSING API KEY: SMALLEST_API_KEY is not set!")
+        logging.error("MISSING API KEY: ELEVENLABS_API_KEY is not set!")
         logging.error("Please add it to your .env file:")
-        logging.error("  SMALLEST_API_KEY=your_api_key_here")
-        logging.error("Get your key from https://smallest.ai")
+        logging.error("  ELEVENLABS_API_KEY=your_api_key_here")
+        logging.error("Get your key from https://elevenlabs.io")
         logging.error("=" * 60)
 
     if not settings.openai_api_key:

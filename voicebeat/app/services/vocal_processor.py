@@ -6,7 +6,6 @@ using librosa. Preserves the original voice timbre while snapping pitches
 to musically correct frequencies.
 """
 
-import asyncio
 import io
 import uuid
 import logging
@@ -20,7 +19,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from config.settings import settings
-from app.services import tts
+from app.services import tts, transcription, rvc_service
 
 logger = logging.getLogger(__name__)
 
@@ -536,6 +535,199 @@ def _detect_key_from_f0(
     return best_key
 
 
+def _proportional_split_from_array(y: np.ndarray, n_words: int) -> list[np.ndarray]:
+    """Split audio array into n_words equal-duration chunks (fallback).
+
+    Each chunk gets a short raised-cosine fade at its edges to avoid clicks.
+    """
+    if n_words <= 0:
+        return [y]
+    chunk_len = len(y) // n_words
+    if chunk_len < 256:
+        chunk_len = len(y) // max(1, n_words)
+    segments = []
+    for i in range(n_words):
+        start = i * chunk_len
+        end = start + chunk_len if i < n_words - 1 else len(y)
+        seg = y[start:end].copy()
+        # Smooth edges
+        fade_len = min(int(0.035 * 22050), len(seg) // 4)
+        if fade_len > 1:
+            fade_in = 0.5 * (1 - np.cos(np.linspace(0, np.pi, fade_len)))
+            fade_out = 0.5 * (1 + np.cos(np.linspace(0, np.pi, fade_len)))
+            seg[:fade_len] *= fade_in
+            seg[-fade_len:] *= fade_out
+        if len(seg) > 0:
+            segments.append(seg)
+    # Pad if we got fewer segments than expected
+    while len(segments) < n_words:
+        segments.append(np.zeros(256, dtype=np.float32))
+    return segments
+
+
+def _aligned_split(
+    y_full: np.ndarray,
+    stt_words: list[dict],
+    expected_words: list[str],
+    sr: int,
+) -> list[np.ndarray]:
+    """Fuzzy-align STT word segments to expected words via merging/splitting."""
+    n_stt = len(stt_words)
+    n_exp = len(expected_words)
+
+    if n_stt == n_exp:
+        # Direct 1:1 mapping with padded slicing
+        return [
+            _padded_slice(y_full, w["start"], w["end"], sr)
+            for w in stt_words
+        ]
+
+    if n_stt > n_exp:
+        # More STT words than expected — merge adjacent STT segments
+        segments = []
+        ratio = n_stt / n_exp
+        for i in range(n_exp):
+            merge_start = int(round(i * ratio))
+            merge_end = int(round((i + 1) * ratio))
+            merge_end = min(merge_end, n_stt)
+            if merge_start >= n_stt:
+                segments.append(np.zeros(256, dtype=np.float32))
+                continue
+            seg = _padded_slice(
+                y_full,
+                stt_words[merge_start]["start"],
+                stt_words[min(merge_end, n_stt) - 1]["end"],
+                sr,
+            )
+            segments.append(seg)
+        return segments
+
+    # n_stt < n_exp — fewer STT words than expected — split some STT segments
+    segments = []
+    ratio = n_exp / n_stt
+    for i, w in enumerate(stt_words):
+        seg = _padded_slice(y_full, w["start"], w["end"], sr)
+        # How many expected words does this STT word cover?
+        n_splits = int(round(ratio))
+        if i == n_stt - 1:
+            # Last STT word takes whatever is left
+            n_splits = n_exp - len(segments)
+        n_splits = max(1, n_splits)
+        if n_splits == 1 or len(seg) < 512:
+            segments.append(seg)
+        else:
+            sub_splits = _proportional_split_from_array(seg, n_splits)
+            segments.extend(sub_splits)
+
+    # Trim or pad to exact expected count
+    while len(segments) > n_exp:
+        segments.pop()
+    while len(segments) < n_exp:
+        segments.append(np.zeros(256, dtype=np.float32))
+    return segments
+
+
+def _padded_slice(
+    y: np.ndarray,
+    start_sec: float,
+    end_sec: float,
+    sr: int,
+    pad_sec: float = 0.035,
+) -> np.ndarray:
+    """Slice audio with padding around boundaries and apply smooth fade edges.
+
+    Adds *pad_sec* before and after the STT boundary so we capture the natural
+    onset/release of each phoneme instead of hard-cutting mid-sound.  A short
+    raised-cosine fade is applied at both edges to eliminate click artefacts.
+    """
+    pad_samples = int(pad_sec * sr)
+    s = max(0, int(start_sec * sr) - pad_samples)
+    e = min(len(y), int(end_sec * sr) + pad_samples)
+    seg = y[s:e].copy()
+
+    # Raised-cosine fade at edges (half the pad length — smooth but short)
+    fade_len = min(pad_samples, len(seg) // 4)
+    if fade_len > 1:
+        fade_in = 0.5 * (1 - np.cos(np.linspace(0, np.pi, fade_len)))
+        fade_out = 0.5 * (1 + np.cos(np.linspace(0, np.pi, fade_len)))
+        seg[:fade_len] *= fade_in
+        seg[-fade_len:] *= fade_out
+
+    return seg
+
+
+async def _split_phrase_into_word_segments(
+    phrase_audio: bytes,
+    expected_words: list[str],
+    sr: int = 22050,
+) -> list[np.ndarray]:
+    """Split phrase-level TTS audio into per-word numpy segments using STT.
+
+    Fallback tiers:
+      1. Exact word count match from STT -> direct slice (best)
+      2. Off by 1-2 -> fuzzy alignment via merge/split
+      3. STT failure or big mismatch -> proportional equal-time split
+    """
+    n_words = len(expected_words)
+
+    # Load phrase WAV into numpy
+    try:
+        y, orig_sr = sf.read(io.BytesIO(phrase_audio))
+        if len(y.shape) > 1:
+            y = np.mean(y, axis=1)
+        y = y.astype(np.float32)
+        if orig_sr != sr:
+            y = librosa.resample(y, orig_sr=orig_sr, target_sr=sr)
+    except Exception as e:
+        logger.warning(f"vocal_processor: failed to load phrase audio: {e}")
+        return _proportional_split_from_array(np.zeros(sr, dtype=np.float32), n_words)
+
+    # Run STT to get word boundaries
+    try:
+        stt_result = await transcription.transcribe_with_timestamps(
+            phrase_audio, content_type="audio/wav", word_timestamps=True
+        )
+        stt_words = stt_result.get("words", [])
+    except Exception as e:
+        logger.warning(f"vocal_processor: STT failed for phrase splitting: {e}")
+        stt_words = []
+
+    n_stt = len(stt_words)
+    logger.info(
+        f"vocal_processor: phrase split — expected {n_words} words, "
+        f"STT returned {n_stt}"
+    )
+
+    if n_stt == 0:
+        # Complete STT failure — proportional fallback
+        logger.warning("vocal_processor: STT returned 0 words, using proportional split")
+        return _proportional_split_from_array(y, n_words)
+
+    diff = abs(n_stt - n_words)
+
+    if diff == 0:
+        # Exact match — slice with padding around STT boundaries
+        segments = [
+            _padded_slice(y, w["start"], w["end"], sr)
+            for w in stt_words
+        ]
+        logger.info("vocal_processor: exact STT word count match — direct slice")
+        return segments
+
+    if diff <= 2:
+        # Close match — fuzzy alignment then re-pad
+        logger.info(f"vocal_processor: off by {diff}, using fuzzy alignment")
+        segments = _aligned_split(y, stt_words, expected_words, sr)
+        return segments
+
+    # Big mismatch — proportional fallback (still better than per-word TTS)
+    logger.warning(
+        f"vocal_processor: STT mismatch too large ({n_stt} vs {n_words}), "
+        "using proportional split"
+    )
+    return _proportional_split_from_array(y, n_words)
+
+
 async def tts_melodic_vocal(
     melody_design: list[dict],
     bpm: int = 120,
@@ -558,10 +750,11 @@ async def tts_melodic_vocal(
 
     logger.info(f"vocal_processor: TTS generating {len(melody_design)} words (melodic)")
 
-    # 1. Generate TTS for all words in parallel
-    tts_results = await asyncio.gather(
-        *[tts.speak_word(d["word"], voice_id) for d in melody_design]
-    )
+    # 1. Generate phrase-level TTS and split into per-word segments
+    words_list = [d["word"] for d in melody_design]
+    phrase_audio = await tts.speak_phrase(words_list, voice_id)
+    phrase_audio = await rvc_service.convert_audio(phrase_audio)
+    word_segments = await _split_phrase_into_word_segments(phrase_audio, words_list, sr=sr)
 
     # 2. Calculate output buffer length
     total_beats = 0
@@ -570,40 +763,53 @@ async def tts_melodic_vocal(
     total_seconds = total_beats * spb + 1.0  # +1s padding
     output = np.zeros(int(total_seconds * sr), dtype=np.float32)
 
-    # 3. Process each word
-    for d, wav_bytes in zip(melody_design, tts_results):
+    # 3. Pitch-shift and time-stretch each word, then place at beat position
+    for d, y in zip(melody_design, word_segments):
         start_beat = d.get("start_beat", 0)
+        target_midi = d.get("midi_note", 60)
+        duration_beats = d.get("duration_beats", 1)
 
-        # Load TTS WAV
-        try:
-            y, orig_sr = sf.read(io.BytesIO(wav_bytes))
-            if len(y.shape) > 1:
-                y = np.mean(y, axis=1)
-            y = y.astype(np.float32)
-        except Exception as e:
-            logger.warning(f"vocal_processor: failed to load TTS for '{d['word']}': {e}")
+        if len(y) < 256:
             continue
 
-        # Resample from TTS sample rate to working rate
-        if orig_sr != sr:
-            y = librosa.resample(y, orig_sr=orig_sr, target_sr=sr)
+        # Detect current pitch with pyin
+        f0, voiced_flag, _ = librosa.pyin(
+            y, fmin=80, fmax=800, sr=sr, hop_length=512
+        )
+        voiced_freqs = f0[voiced_flag & ~np.isnan(f0)] if voiced_flag is not None else np.array([])
 
-        # Trim silence
-        y_trimmed, _ = librosa.effects.trim(y, top_db=25)
-        if len(y_trimmed) > 256:
-            y = y_trimmed
+        # Pitch-shift to target midi_note
+        if len(voiced_freqs) > 0:
+            avg_freq = float(np.nanmean(voiced_freqs))
+            current_midi = 69 + 12 * np.log2(avg_freq / 440.0)
+            shift = target_midi - current_midi
+            shift = max(-7, min(7, shift))  # Clamp ±7 semitones
 
-        # Place in output buffer with crossfade
+            if abs(shift) > 0.1:
+                try:
+                    y = librosa.effects.pitch_shift(y, sr=sr, n_steps=shift)
+                    logger.info(f"vocal_processor: pitch-shifted '{d['word']}' by {shift:+.1f} semitones")
+                except Exception as e:
+                    logger.warning(f"vocal_processor: pitch shift failed for '{d['word']}': {e}")
+
+        # Time-stretch to fit duration_beats
+        target_duration = duration_beats * spb
+        current_duration = len(y) / sr
+        if current_duration > 0 and abs(target_duration - current_duration) > 0.05:
+            rate = current_duration / target_duration
+            rate = max(0.5, min(2.0, rate))  # Clamp stretch ratio
+            try:
+                y = librosa.effects.time_stretch(y, rate=rate)
+                logger.info(f"vocal_processor: time-stretched '{d['word']}' rate={rate:.2f}")
+            except Exception as e:
+                logger.warning(f"vocal_processor: time stretch failed for '{d['word']}': {e}")
+
+        # Place in output buffer
         out_start = int(start_beat * spb * sr)
         out_end = min(len(output), out_start + len(y))
         actual_len = out_end - out_start
         if actual_len > 0:
-            fade = min(64, actual_len // 4)
-            chunk = y[:actual_len].copy()
-            if fade > 0:
-                chunk[:fade] *= np.linspace(0, 1, fade)
-                chunk[-fade:] *= np.linspace(1, 0, fade)
-            output[out_start:out_end] += chunk
+            output[out_start:out_end] += y[:actual_len]
 
     # 4. Normalize and export
     peak = np.max(np.abs(output))
@@ -649,10 +855,11 @@ async def tts_rhythmic_vocal(
 
     logger.info(f"vocal_processor: TTS generating {len(rhythm_design)} words (rhythmic)")
 
-    # 1. Generate TTS for all words in parallel
-    tts_results = await asyncio.gather(
-        *[tts.speak_word(d["word"], voice_id) for d in rhythm_design]
-    )
+    # 1. Generate phrase-level TTS and split into per-word segments
+    words_list = [d["word"] for d in rhythm_design]
+    phrase_audio = await tts.speak_phrase(words_list, voice_id)
+    phrase_audio = await rvc_service.convert_audio(phrase_audio)
+    word_segments = await _split_phrase_into_word_segments(phrase_audio, words_list, sr=sr)
 
     # 2. Create output buffer
     total_seconds = total_bars * bar_sec + 1.0
@@ -660,46 +867,48 @@ async def tts_rhythmic_vocal(
 
     # 3. Build sorted placement list
     placements = []
-    for d, wav_bytes in zip(rhythm_design, tts_results):
+    for d, y in zip(rhythm_design, word_segments):
         bar = d.get("bar", 0)
         beat_pos = d.get("beat_position", 0)
         target_sec = bar * bar_sec + (beat_pos / 4.0) * spb
-        placements.append((d, wav_bytes, target_sec))
+        placements.append((d, y, target_sec))
 
     placements.sort(key=lambda x: x[2])
 
-    # 4. Process each word
-    for i, (d, wav_bytes, target_sec) in enumerate(placements):
-        # Load TTS WAV
-        try:
-            y, orig_sr = sf.read(io.BytesIO(wav_bytes))
-            if len(y.shape) > 1:
-                y = np.mean(y, axis=1)
-            y = y.astype(np.float32)
-        except Exception as e:
-            logger.warning(f"vocal_processor: failed to load TTS for '{d['word']}': {e}")
+    # 4. Time-stretch and place each word segment at its beat position
+    for i, (d, y, target_sec) in enumerate(placements):
+        if len(y) < 256:
             continue
 
-        # Resample
-        if orig_sr != sr:
-            y = librosa.resample(y, orig_sr=orig_sr, target_sr=sr)
+        # Determine target duration
+        duration_beats = d.get("duration_beats")
+        if duration_beats is not None:
+            target_duration = duration_beats * spb
+        else:
+            # Compute available slot: time to next word minus 20ms gap
+            if i + 1 < len(placements):
+                slot_end = placements[i + 1][2]
+            else:
+                slot_end = target_sec + (len(y) / sr) * 1.5
+            target_duration = max(0.05, slot_end - target_sec - 0.02)
 
-        # Trim silence
-        y_trimmed, _ = librosa.effects.trim(y, top_db=25)
-        if len(y_trimmed) > 256:
-            y = y_trimmed
+        # Time-stretch to fit target duration
+        current_duration = len(y) / sr
+        if current_duration > 0 and abs(target_duration - current_duration) > 0.05:
+            rate = current_duration / target_duration
+            rate = max(0.5, min(2.5, rate))  # Clamp stretch ratio
+            try:
+                y = librosa.effects.time_stretch(y, rate=rate)
+                logger.info(f"vocal_processor: time-stretched '{d['word']}' rate={rate:.2f}")
+            except Exception as e:
+                logger.warning(f"vocal_processor: time stretch failed for '{d['word']}': {e}")
 
         # Place in output buffer
         out_start = int(target_sec * sr)
         out_end = min(len(output), out_start + len(y))
         actual_len = out_end - out_start
         if actual_len > 0:
-            fade = min(64, actual_len // 4)
-            chunk = y[:actual_len].copy()
-            if fade > 0:
-                chunk[:fade] *= np.linspace(0, 1, fade)
-                chunk[-fade:] *= np.linspace(1, 0, fade)
-            output[out_start:out_end] += chunk
+            output[out_start:out_end] += y[:actual_len]
 
     # 5. Normalize and export
     peak = np.max(np.abs(output))

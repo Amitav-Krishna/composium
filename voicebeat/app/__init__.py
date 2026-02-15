@@ -1,1 +1,1 @@
-# VoiceBeat - Voice-driven music creation tool
+# VibeBeat - Voice-driven music creation tool

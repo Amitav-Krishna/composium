@@ -1,5 +1,5 @@
 """
-API Routes for VoiceBeat
+API Routes for VibeBeat
 
 The main endpoint is /api/v1/process which accepts a single recording
 containing both speech (instructions) and music (humming/beatboxing).
