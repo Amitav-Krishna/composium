@@ -572,9 +572,7 @@ async def tts_melodic_vocal(
 
     # 3. Process each word
     for d, wav_bytes in zip(melody_design, tts_results):
-        target_midi = d.get("midi_note", 60)
         start_beat = d.get("start_beat", 0)
-        duration_beats = d.get("duration_beats", 1)
 
         # Load TTS WAV
         try:
@@ -594,34 +592,6 @@ async def tts_melodic_vocal(
         y_trimmed, _ = librosa.effects.trim(y, top_db=25)
         if len(y_trimmed) > 256:
             y = y_trimmed
-
-        # Detect natural pitch via PYIN
-        f0, voiced_flag, _ = librosa.pyin(y, fmin=80, fmax=800, sr=sr, hop_length=512)
-        voiced_freqs = f0[voiced_flag & ~np.isnan(f0)] if voiced_flag is not None else np.array([])
-
-        if len(voiced_freqs) > 0:
-            avg_freq = float(np.nanmean(voiced_freqs))
-            if avg_freq > 0:
-                detected_midi = 69 + 12 * np.log2(avg_freq / 440.0)
-                shift = target_midi - detected_midi
-                shift = max(-7, min(7, shift))  # Clamp ±7 semitones
-
-                if abs(shift) > 0.1:
-                    try:
-                        y = librosa.effects.pitch_shift(y, sr=sr, n_steps=shift)
-                    except Exception as e:
-                        logger.warning(f"vocal_processor: pitch shift failed for '{d['word']}': {e}")
-
-        # Time-stretch to target duration
-        target_duration = duration_beats * spb
-        current_duration = len(y) / sr
-        if current_duration > 0 and abs(target_duration - current_duration) > 0.05:
-            rate = current_duration / target_duration
-            rate = max(0.5, min(2.0, rate))
-            try:
-                y = librosa.effects.time_stretch(y, rate=rate)
-            except Exception as e:
-                logger.warning(f"vocal_processor: time stretch failed for '{d['word']}': {e}")
 
         # Place in output buffer with crossfade
         out_start = int(start_beat * spb * sr)
@@ -718,24 +688,6 @@ async def tts_rhythmic_vocal(
         y_trimmed, _ = librosa.effects.trim(y, top_db=25)
         if len(y_trimmed) > 256:
             y = y_trimmed
-
-        # Calculate available slot (gap until next word)
-        if i + 1 < len(placements):
-            slot_end = placements[i + 1][2]
-        else:
-            slot_end = target_sec + len(y) / sr * 1.5
-
-        available = max(0.05, slot_end - target_sec - 0.02)
-        current_duration = len(y) / sr
-
-        # Time-stretch if needed
-        if current_duration > 0 and abs(available - current_duration) > 0.05:
-            rate = current_duration / available
-            rate = max(0.5, min(2.5, rate))
-            try:
-                y = librosa.effects.time_stretch(y, rate=rate)
-            except Exception as e:
-                logger.warning(f"vocal_processor: time stretch failed for '{d['word']}': {e}")
 
         # Place in output buffer
         out_start = int(target_sec * sr)

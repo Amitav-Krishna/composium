@@ -28,7 +28,8 @@ TOOL_DESIGN_MELODY = {
         "name": "design_vocal_melody",
         "description": (
             "Assign a MIDI note and timing to each word to create a vocal melody. "
-            "The user's speech will be pitch-shifted to match these notes."
+            "Each word is synthesized via TTS then pitch-shifted. "
+            "IMPORTANT: Use whole words only — never split into syllables (no 'Mu-' + '-sic', use 'Music')."
         ),
         "parameters": {
             "type": "object",
@@ -38,7 +39,7 @@ TOOL_DESIGN_MELODY = {
                     "items": {
                         "type": "object",
                         "properties": {
-                            "word": {"type": "string", "description": "The word text"},
+                            "word": {"type": "string", "description": "A complete word — never split into syllables"},
                             "midi_note": {
                                 "type": "integer",
                                 "description": "Target MIDI note (60=C4, 62=D4, 64=E4, etc.)",
@@ -77,7 +78,7 @@ TOOL_DESIGN_RHYTHM = {
                     "items": {
                         "type": "object",
                         "properties": {
-                            "word": {"type": "string", "description": "The word text"},
+                            "word": {"type": "string", "description": "A complete word — never split into syllables"},
                             "bar": {"type": "integer", "description": "Which bar (0-indexed)"},
                             "beat_position": {
                                 "type": "integer",
@@ -161,10 +162,11 @@ Then call render_vocal to produce the audio. Then call done.
 {lyrics_filter}
 
 ## Guidelines
+- NEVER split words into syllables — each entry must be a complete word (use "music" not "mu-" + "-sic")
 - Keep the melody simple and singable — stepwise motion, small intervals
+- Keep pitch shifts small — stay within ±4 semitones of a natural speaking range (MIDI 58-67)
 - Match natural speech emphasis: stressed syllables get higher notes or longer durations
 - Short words (articles, prepositions) can share a note with adjacent words
-- Typical vocal range: MIDI 55-72 (G3 to C5)
 - Place words on or near beat boundaries for a natural feel
 - Leave small gaps between phrases for breathing"""
 

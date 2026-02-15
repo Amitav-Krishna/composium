@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     pulse_model: str = "pulse"
     pulse_language: str = "en"
 
-    tts_voice_id: str = "james"
+    tts_voice_id: str = "walter"
     tts_sample_rate: int = 24000
 
     samples_dir: Path = Path("./samples")
