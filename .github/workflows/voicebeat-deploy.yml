@@ -2,7 +2,7 @@ name: VoiceBeat Deploy
 
 on:
   push:
-    branches: [composium-bridge]   # change if you deploy a different branch
+    branches: [composium-bridge] # change if you deploy a different branch
 
 jobs:
   deploy:
@@ -28,18 +28,18 @@ jobs:
 
             # Write .env exactly where systemd expects it
             cat > "$APP_DIR/.env" <<EOF
-SMALLEST_API_KEY=${{ secrets.SMALLEST_API_KEY }}
-OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
-PULSE_MODEL=${{ secrets.PULSE_MODEL }}
-PULSE_LANGUAGE=${{ secrets.PULSE_LANGUAGE }}
-TTS_VOICE_ID=${{ secrets.TTS_VOICE_ID }}
-TTS_SAMPLE_RATE=${{ secrets.TTS_SAMPLE_RATE }}
-SAMPLES_DIR=./samples
-OUTPUT_DIR=./output
-DEFAULT_BPM=120
-OPENROUTER_API_KEY=${{ secrets.OPENROUTER_API_KEY }}
-SUBAGENT_MODEL=${{ secrets.SUBAGENT_MODEL }}
-EOF
+            SMALLEST_API_KEY=${{ secrets.SMALLEST_API_KEY }}
+            OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
+            PULSE_MODEL=${{ secrets.PULSE_MODEL }}
+            PULSE_LANGUAGE=${{ secrets.PULSE_LANGUAGE }}
+            TTS_VOICE_ID=${{ secrets.TTS_VOICE_ID }}
+            TTS_SAMPLE_RATE=${{ secrets.TTS_SAMPLE_RATE }}
+            SAMPLES_DIR=./samples
+            OUTPUT_DIR=./output
+            DEFAULT_BPM=120
+            OPENROUTER_API_KEY=${{ secrets.OPENROUTER_API_KEY }}
+            SUBAGENT_MODEL=${{ secrets.SUBAGENT_MODEL }}
+            EOF
 
             chmod 600 "$APP_DIR/.env"
             chown ubi:ubi "$APP_DIR/.env"
