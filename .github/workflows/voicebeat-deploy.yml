@@ -2,8 +2,7 @@ name: VoiceBeat Deploy
 
 on:
   push:
-    branches: [production]
-  workflow_dispatch:
+    branches: [composium-bridge]
 
 jobs:
   deploy:
