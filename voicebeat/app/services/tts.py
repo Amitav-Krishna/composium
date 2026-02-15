@@ -1,9 +1,10 @@
-import httpx
-from pathlib import Path
 import sys
+from pathlib import Path
+
+import httpx
+
 sys.path.insert(0, str(__file__).rsplit("/", 4)[0])
 from config.settings import settings
-
 
 WAVES_TTS_URL = "https://waves-api.smallest.ai/api/v1/lightning-v2/get_speech"
 
@@ -38,9 +39,13 @@ async def speak(
     """
     voice = voice_id or settings.tts_voice_id
     rate = sample_rate or settings.tts_sample_rate
+    # Parse comma-separated API keys and select one randomly
+    import random
+
+    api_keys = [key.strip() for key in settings.smallest_api_key.split(",")]
 
     headers = {
-        "Authorization": f"Bearer {settings.smallest_api_key}",
+        "Authorization": f"Bearer {random.choice(api_keys)}",
         "Content-Type": "application/json",
     }
 

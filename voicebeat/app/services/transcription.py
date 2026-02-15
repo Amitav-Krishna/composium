@@ -1,7 +1,9 @@
-import httpx
 import logging
-from typing import Optional
 import sys
+from typing import Optional
+
+import httpx
+
 sys.path.insert(0, str(__file__).rsplit("/", 4)[0])
 from config.settings import settings
 
@@ -67,8 +69,13 @@ async def transcribe_with_timestamps(
         "word_timestamps": str(word_timestamps).lower(),
     }
 
+    import random
+
+    api_keys = settings.smallest_api_key.split(",")
+    selected_key = random.choice(api_keys).strip()
+
     headers = {
-        "Authorization": f"Bearer {settings.smallest_api_key}",
+        "Authorization": f"Bearer {selected_key}",
         "Content-Type": content_type,
     }
 
@@ -86,7 +93,7 @@ async def transcribe_with_timestamps(
         logger.info(f"STT: Response keys: {list(result.keys())}")
         logger.info(f"STT: Transcription: '{result.get('transcription', '')}'")
         logger.info(f"STT: Words count: {len(result.get('words', []))}")
-        if result.get('words'):
+        if result.get("words"):
             logger.info(f"STT: Words detail: {result.get('words')}")
         logger.info("=" * 60)
 
