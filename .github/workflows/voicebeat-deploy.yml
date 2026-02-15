@@ -27,7 +27,7 @@ jobs:
             git reset --hard origin/composium-bridge
 
             # Write .env exactly where systemd expects it
-            cat > "$APP_DIR/.env" <<EOF
+            cat > "$REPO_ROOT/.env" <<EOF
             SMALLEST_API_KEY=${{ secrets.SMALLEST_API_KEY }}
             OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
             PULSE_MODEL=${{ secrets.PULSE_MODEL }}
@@ -41,8 +41,8 @@ jobs:
             SUBAGENT_MODEL=${{ secrets.SUBAGENT_MODEL }}
             EOF
 
-            chmod 600 "$APP_DIR/.env"
-            chown ubi:ubi "$APP_DIR/.env"
+            chmod 600 "$REPO_ROOT/.env"
+            chown ubi:ubi "$REPO_ROOT/.env"
 
             # Ensure folders exist (since you reference them)
             mkdir -p "$APP_DIR/samples" "$APP_DIR/output"
