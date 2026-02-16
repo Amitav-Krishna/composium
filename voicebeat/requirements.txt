@@ -1,32 +1,16 @@
-# Core web framework
 fastapi==0.115.0
 uvicorn[standard]==0.30.0
 python-multipart==0.0.9
-
-# Data validation
 pydantic==2.9.0
 pydantic-settings==2.5.0
-
-# Audio processing
 librosa==0.10.2
 soundfile==0.12.1
 pydub==0.25.1
-
-# Core dependencies - compatible with rvc-python
-numpy==1.24.3
-
-# HTTP and utilities
+numpy==1.26.4
 httpx==0.27.0
 openai==1.50.0
 python-dotenv==1.0.1
 aiofiles==24.1.0
 uuid6==2024.7.10
-
-# MIDI and testing
 midiutil==1.2.1
 pytest==8.3.0
-
-# ML packages - let pip resolve versions
-torch
-torchaudio
-rvc-python
