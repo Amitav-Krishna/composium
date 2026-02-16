@@ -2,16 +2,14 @@ name: VoiceBeat Deploy
 
 on:
   push:
-    branches: [production]
-  workflow_dispatch:
+    branches: [main] # change if you deploy a different branch
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Deploy VoiceBeat to VM
-        uses: appleboy/ssh-action@master
+      - name: Deploy to VM (pull + write env + install deps + restart)
+        uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
@@ -19,114 +17,42 @@ jobs:
           script: |
             set -euo pipefail
 
-            echo "========================================"
-            echo "  Deploying VoiceBeat"
-            echo "========================================"
+            # Repo root on VM (adjust if yours differs)
+            REPO_ROOT="/opt/voicebeat/composium"
+            APP_DIR="$REPO_ROOT/voicebeat"
 
-            # Configure git
-            export GIT_TERMINAL_PROMPT=0
+            cd "$REPO_ROOT"
+            git fetch origin
+            git checkout main
+            git reset --hard origin/main
 
-            # Lowercase repository name for consistency
-            REPO=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
-
-            # Use PAT if available (for private repos), otherwise use public URL
-            PAT="${{ secrets.PAT }}"
-            if [ -n "$PAT" ]; then
-              REPO_URL="https://${PAT}@github.com/${REPO}.git"
-            else
-              REPO_URL="https://github.com/${REPO}.git"
-            fi
-
-            REPO_DIR="/opt/voicebeat"
-
-            # Check if we can use the directory
-            if [ -d "$REPO_DIR" ] && [ ! -w "$REPO_DIR" ]; then
-              echo "Warning: $REPO_DIR exists but is not writable, using home directory..."
-              REPO_DIR="$HOME/voicebeat"
-            elif [ ! -d "$REPO_DIR" ]; then
-              mkdir -p "$REPO_DIR" 2>/dev/null || {
-                echo "Warning: Cannot create $REPO_DIR, using home directory..."
-                REPO_DIR="$HOME/voicebeat"
-              }
-            fi
-
-            mkdir -p "$REPO_DIR"
-
-            # Clone or pull repository
-            if [ -d "$REPO_DIR/.git" ]; then
-              echo "Repository exists, resetting to production..."
-              cd "$REPO_DIR"
-              git remote set-url origin "$REPO_URL"
-              git fetch origin production
-              git checkout production
-              git reset --hard origin/production
-            else
-              echo "Repository not found, cloning..."
-              if [ -d "$REPO_DIR" ] && [ -w "$REPO_DIR" ]; then
-                rm -rf "$REPO_DIR"
-                mkdir -p "$REPO_DIR"
-              fi
-              git clone -b production "$REPO_URL" "$REPO_DIR"
-              cd "$REPO_DIR"
-            fi
-
-            # Install system dependencies
-            if command -v apt-get >/dev/null 2>&1; then
-              echo "Installing system dependencies..."
-              sudo apt-get update -y
-              sudo apt-get install -y ffmpeg abc2midi timidity
-            else
-              echo "apt-get not found; please ensure ffmpeg, abc2midi, and timidity are installed."
-            fi
-
-            # Create .env file for VoiceBeat
-            echo "Creating voicebeat/.env..."
-            cat > voicebeat/.env <<EOF
+            # Write .env exactly where systemd expects it
+            cat > "$REPO_ROOT/.env" <<EOF
+            SMALLEST_API_KEY=${{ secrets.SMALLEST_API_KEY }}
             OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
+            PULSE_MODEL=${{ secrets.PULSE_MODEL }}
+            PULSE_LANGUAGE=${{ secrets.PULSE_LANGUAGE }}
+            TTS_VOICE_ID=${{ secrets.TTS_VOICE_ID }}
+            TTS_SAMPLE_RATE=${{ secrets.TTS_SAMPLE_RATE }}
+            SAMPLES_DIR=./samples
+            OUTPUT_DIR=./output
+            DEFAULT_BPM=120
+            OPENROUTER_API_KEY=${{ secrets.OPENROUTER_API_KEY }}
+            SUBAGENT_MODEL=${{ secrets.SUBAGENT_MODEL }}
             EOF
 
-            # Set up virtual environment
-            echo "Setting up virtual environment..."
-            cd "$REPO_DIR/voicebeat"
-            python3 -m venv .venv
+            chmod 600 "$REPO_ROOT/.env"
+            chown ubi:ubi "$REPO_ROOT/.env"
+
+            # Ensure folders exist (since you reference them)
+            mkdir -p "$APP_DIR/samples" "$APP_DIR/output"
+
+            # Install/refresh deps so new requirements show up
+            cd "$APP_DIR"
             . .venv/bin/activate
-            pip install --upgrade pip
             pip install -r requirements.txt
 
-            # Create systemd service
-            echo "Configuring systemd service..."
-            SERVICE_FILE="/etc/systemd/system/voicebeat.service"
-            sudo bash -c "cat > $SERVICE_FILE" <<EOF
-            [Unit]
-            Description=VoiceBeat FastAPI Service
-            After=network.target
-
-            [Service]
-            Type=simple
-            User=$USER
-            WorkingDirectory=$REPO_DIR/voicebeat
-            Environment=PYTHONUNBUFFERED=1
-            ExecStart=$REPO_DIR/voicebeat/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
-            Restart=always
-            RestartSec=5
-
-            [Install]
-            WantedBy=multi-user.target
-            EOF
-
             sudo systemctl daemon-reload
-            sudo systemctl enable voicebeat.service
             sudo systemctl restart voicebeat.service
-
-            echo ""
-            echo "========================================"
-            echo "  Deployment Complete!"
-            echo "========================================"
-            echo ""
-            echo "Service status:"
-            sudo systemctl status voicebeat.service --no-pager
-
-            # Optional health check
-            if command -v curl >/dev/null 2>&1; then
-              curl -f http://localhost:8000/health || true
-            fi
+            sudo systemctl --no-pager --full status voicebeat.service | sed -n '1,25p'
+            curl -fsS http://localhost:8000/health || true
