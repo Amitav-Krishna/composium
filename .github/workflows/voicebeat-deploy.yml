@@ -50,7 +50,34 @@ jobs:
             # Install/refresh deps so new requirements show up
             cd "$APP_DIR"
             . .venv/bin/activate
-            pip install -r requirements.txt
+
+            # Upgrade pip and essential build tools first
+            pip install --upgrade pip setuptools wheel
+
+            # Install packages in stages to handle build issues
+            echo "Installing core dependencies..."
+            pip install --only-binary=numpy "numpy==1.24.3" || {
+              echo "Installing numpy from source as fallback..."
+              pip install --upgrade setuptools wheel cython
+              pip install "numpy==1.24.3"
+            }
+
+            # Install PyTorch CPU version specifically for server deployment
+            echo "Installing PyTorch..."
+            pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
+
+            # Install other core packages
+            echo "Installing remaining packages..."
+            pip install fastapi uvicorn[standard] python-multipart pydantic pydantic-settings
+            pip install librosa soundfile pydub httpx openai python-dotenv aiofiles
+            pip install uuid6 midiutil pytest
+
+            # Install rvc-python last as it has complex dependencies
+            echo "Installing rvc-python..."
+            pip install rvc-python || {
+              echo "rvc-python installation failed, trying with --no-deps..."
+              pip install rvc-python --no-deps
+            }
 
             sudo systemctl daemon-reload
             sudo systemctl restart voicebeat.service

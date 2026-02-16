@@ -1,0 +1,42 @@
+# Deployment-specific requirements with proven wheel availability
+# This file is optimized for Ubuntu/Linux deployment environments
+
+# Core web framework
+fastapi==0.115.0
+uvicorn[standard]==0.30.0
+python-multipart==0.0.9
+
+# Data validation
+pydantic==2.9.0
+pydantic-settings==2.5.0
+
+# Audio processing - using specific versions with reliable wheels
+librosa==0.10.2
+soundfile==0.12.1
+pydub==0.25.1
+
+# Core dependencies - using numpy version compatible with rvc-python and has reliable wheels
+numpy==1.24.3
+
+# HTTP and utilities
+httpx==0.27.0
+openai==1.50.0
+python-dotenv==1.0.1
+aiofiles==24.1.0
+uuid6==2024.7.10
+
+# MIDI and testing
+midiutil==1.2.1
+pytest==8.3.0
+
+# PyTorch - using CPU-only versions for lighter deployment
+torch==2.1.0
+torchaudio==2.1.0
+
+# AI/ML packages - install without strict versions to allow dependency resolution
+rvc-python
+
+# Build dependencies (install these first)
+setuptools>=65.0.0
+wheel>=0.38.0
+Cython>=0.29.0
